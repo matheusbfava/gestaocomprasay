@@ -8,12 +8,18 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from sharepoint_auth_v2 import SharePointOAuthClient
+    from sharepoint_auth_v3 import SharePointOAuthClient, SharePointMSALClient
 except ImportError:
     try:
-        from sharepoint_auth import SharePointOAuthClient
+        from sharepoint_auth_v2 import SharePointOAuthClient
+        SharePointMSALClient = None
     except ImportError:
-        SharePointOAuthClient = None
+        try:
+            from sharepoint_auth import SharePointOAuthClient
+            SharePointMSALClient = None
+        except ImportError:
+            SharePointOAuthClient = None
+            SharePointMSALClient = None
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
@@ -307,6 +313,12 @@ LISTA_FALLBACK_GRUPO_INSUMO = [
 LISTA_TIPOS = ["Novo", "Aditivo"]
 
 # --- CONFIGURAÇÕES DE INTEGRAÇÃO (SALVAS EM SESSION STATE) ---
+if "sp_auth_type" not in st.session_state:
+    st.session_state.sp_auth_type = "MSAL (Device Flow)" # "OAuth2 (App-Only)" ou "MSAL (Device Flow)"
+if "sp_access_token" not in st.session_state:
+    st.session_state.sp_access_token = None
+if "device_flow" not in st.session_state:
+    st.session_state.device_flow = None
 if "sp_tenant_id" not in st.session_state:
     st.session_state.sp_tenant_id = ""
 if "sp_client_id" not in st.session_state:
@@ -488,14 +500,21 @@ if "db_data" not in st.session_state:
 # Opções padronizadas de status para garantir integridade das colunas de texto do SharePoint
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# Instancia o cliente SharePoint caso as credenciais estejam ativas e o modo de produção selecionado
+# Instancia o cliente SharePoint conforme a conexão ativa (MSAL ou OAuth2)
 sp_client = None
-if st.session_state.sp_connected and SharePointOAuthClient:
-    sp_client = SharePointOAuthClient(
-        tenant_id=st.session_state.sp_tenant_id,
-        client_id=st.session_state.sp_client_id,
-        client_secret=st.session_state.sp_client_secret
-    )
+if st.session_state.sp_connected:
+    if st.session_state.sp_auth_type == "MSAL (Device Flow)" and SharePointMSALClient:
+        sp_client = SharePointMSALClient(
+            tenant_id=st.session_state.sp_tenant_id,
+            client_id=st.session_state.sp_client_id
+        )
+        sp_client.access_token = st.session_state.sp_access_token
+    elif st.session_state.sp_auth_type == "OAuth2 (App-Only)" and SharePointOAuthClient:
+        sp_client = SharePointOAuthClient(
+            tenant_id=st.session_state.sp_tenant_id,
+            client_id=st.session_state.sp_client_id,
+            client_secret=st.session_state.sp_client_secret
+        )
 
 # --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO ---
 def carregar_grupos_insumo():
@@ -505,12 +524,20 @@ def carregar_grupos_insumo():
     """
     if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
         try:
-            client_projetos = SharePointOAuthClient(
-                tenant_id=st.session_state.sp_tenant_id,
-                client_id=st.session_state.sp_client_id,
-                client_secret=st.session_state.sp_client_secret,
-                site_url="https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS"
-            )
+            if st.session_state.sp_auth_type == "MSAL (Device Flow)" and SharePointMSALClient:
+                client_projetos = SharePointMSALClient(
+                    tenant_id=st.session_state.sp_tenant_id,
+                    client_id=st.session_state.sp_client_id,
+                    site_url="https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS"
+                )
+                client_projetos.access_token = st.session_state.sp_access_token
+            else:
+                client_projetos = SharePointOAuthClient(
+                    tenant_id=st.session_state.sp_tenant_id,
+                    client_id=st.session_state.sp_client_id,
+                    client_secret=st.session_state.sp_client_secret,
+                    site_url="https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS"
+                )
             items = client_projetos.get_list_items(list_name="dSUPRI_GruposInsumo")
             grupos = []
             for item in items:
@@ -1094,63 +1121,156 @@ else:
 
     # PAGE 4: DETALHES DE INTEGRAÇÃO DO SHAREPOINT E OAUTH2
     elif st.session_state.menu_option == "Integração SharePoint":
-        st.markdown("<h3 class='styled-table-title'>🔑 Painel de Integração Ativa via OAuth2 (Microsoft Entra ID)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>🔑 Painel de Integração Ativa via Microsoft Entra ID</h3>", unsafe_allow_html=True)
         
-        with st.form("oauth2_config_form"):
-            st.markdown("<strong style='color:#00205B;'>Configurações de Identidade Microsoft Cloud</strong>", unsafe_allow_html=True)
-            st.info("Insira as credenciais geradas para o seu registro de aplicativo para validar o token OAuth2.")
+        # Seleção de tipo de login
+        auth_type_sel = st.radio(
+            "Selecione o Método de Autenticação",
+            ["MSAL (Device Code Flow - Sem necessidade de TI / Recomendado)", "OAuth2 (App-Only - Requer aprovação da TI e Client Secret)"],
+            index=0 if st.session_state.get("sp_auth_type", "MSAL (Device Flow)") == "MSAL (Device Flow)" else 1
+        )
+        
+        # Atualiza tipo no session_state
+        new_auth_type = "MSAL (Device Flow)" if "Device Code Flow" in auth_type_sel else "OAuth2 (App-Only)"
+        if new_auth_type != st.session_state.get("sp_auth_type"):
+            st.session_state.sp_auth_type = new_auth_type
+            st.rerun()
             
-            cfg_tenant = st.text_input("Tenant ID (ID do Diretório)", value=st.session_state.sp_tenant_id, placeholder="Ex: a2a3b4c5-...")
-            cfg_client = st.text_input("Client ID (ID do Aplicativo)", value=st.session_state.sp_client_id, placeholder="Ex: e6f7g8h9-...")
-            cfg_secret = st.text_input("Client Secret (Segredo do Cliente)", value=st.session_state.sp_client_secret, placeholder="Digite o segredo corporativo...", type="password")
+        if st.session_state.sp_auth_type == "MSAL (Device Flow)":
+            st.info("💡 **Como funciona:** Este método utiliza o seu próprio login corporativo da A.Yoshii. O aplicativo rodará em seu nome (Delegado), herdando suas permissões para ler/escrever nas listas que você já possui acesso. **Nenhuma aprovação de TI é necessária!**")
             
-            test_connection = st.form_submit_button("⚡ Validar Autenticação OAuth2")
-            
-            if test_connection:
-                if not cfg_tenant or not cfg_client or not cfg_secret:
-                    st.error("❌ Todos os campos de credenciais do OAuth2 são obrigatórios.")
+            col_in1, col_in2 = st.columns(2)
+            with col_in1:
+                cfg_tenant = st.text_input("Tenant ID (ID do Diretório Microsoft 365)", value=st.session_state.sp_tenant_id, placeholder="Ex: a2a3b4c5-...")
+                cfg_client = st.text_input("Client ID (ID do Aplicativo)", value=st.session_state.sp_client_id, placeholder="Ex: e6f7g8h9-...")
+            with col_in2:
+                st.markdown("<div style='background-color:#F4F6F9; padding: 12px; border-radius: 4px; font-size:12px; border-left: 3px solid #00205B;'><strong>Dica de Desenvolvimento (Sem registrar nada):</strong><br>Se a sua empresa ainda não registrou um app no Azure AD, você pode testar este fluxo usando o Client ID padrão do <strong>PnP Management Shell</strong> (pré-aprovado pela Microsoft na maioria dos tenants):<br><code style='user-select: all; background-color: #E2E8F0; padding: 2px 4px;'>313b5f0e-b397-47e1-a7db-7eec15839563</code></div>", unsafe_allow_html=True)
+                
+            # Fluxo de login MSAL
+            if not st.session_state.sp_connected:
+                if st.session_state.device_flow is None:
+                    if st.button("🔑 Iniciar Login via Código de Dispositivo", use_container_width=True):
+                        if not cfg_tenant or not cfg_client:
+                            st.error("❌ Os campos Tenant ID e Client ID são obrigatórios.")
+                        else:
+                            try:
+                                temp_client = SharePointMSALClient(tenant_id=cfg_tenant, client_id=cfg_client)
+                                flow = temp_client.initiate_device_flow()
+                                st.session_state.device_flow = flow
+                                st.session_state.sp_tenant_id = cfg_tenant
+                                st.session_state.sp_client_id = cfg_client
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Erro ao iniciar fluxo: {str(e)}")
                 else:
-                    with st.spinner("Autenticando junto ao Microsoft Azure AD..."):
-                        try:
-                            temp_client = SharePointOAuthClient(
-                                tenant_id=cfg_tenant,
-                                client_id=cfg_client,
-                                client_secret=cfg_secret
-                            )
-                            token = temp_client.acquire_token()
-                            
-                            st.session_state.sp_tenant_id = cfg_tenant
-                            st.session_state.sp_client_id = cfg_client
-                            st.session_state.sp_client_secret = cfg_secret
-                            st.session_state.sp_connected = True
-                            
-                            render_html(f"""
-                            <div class="success-card">
-                                <h4>✅ Conexão OAuth2 Estabelecida com Sucesso!</h4>
-                                <p><strong>Inquilino Autenticado:</strong> {cfg_tenant}</p>
-                                <p>O modo de produção em tempo real (SharePoint Live) agora está <strong>LIBERADO</strong>.</p>
-                            </div>
-                            """)
-                        except Exception as e:
-                            st.session_state.sp_connected = False
-                            st.error(f"❌ Falha de Autenticação: {str(e)}")
-        
+                    flow = st.session_state.device_flow
+                    st.markdown("---")
+                    render_html(f"""
+                    <div style="background-color: #FFF3CD; border-left: 5px solid #FFC107; padding: 15px; border-radius: 4px; color: #856404;">
+                        <h4 style="margin: 0 0 10px 0; color: #856404;">🔒 Autenticação Corporativa Requerida</h4>
+                        <p style="margin: 0 0 10px 0; font-size: 13px;">Siga os passos abaixo para conectar o app à sua conta do SharePoint:</p>
+                        <ol style="margin: 0; padding-left: 20px; font-size: 13px;">
+                            <li>Acesse o link oficial da Microsoft: <a href="{flow['verification_uri']}" target="_blank" style="font-weight:bold; color:#856404; text-decoration: underline;">{flow['verification_uri']}</a></li>
+                            <li>Digite o código de verificação de 9 dígitos abaixo:</li>
+                        </ol>
+                        <div style="text-align: center; margin: 15px 0;">
+                            <span style="background-color: #FFFFFF; border: 2px solid #FFC107; font-size: 24px; font-weight: 800; padding: 10px 20px; border-radius: 8px; letter-spacing: 2px; user-select: all; color: #00205B;">
+                                {flow['user_code']}
+                            </span>
+                        </div>
+                        <p style="margin: 0; font-size: 11px; opacity: 0.8;">O link abrirá uma nova aba onde você fará o login normal do Grupo A.Yoshii. Após concluir o login lá, clique no botão de confirmação abaixo.</p>
+                    </div>
+                    """)
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        if st.button("⚡ Confirmar e Concluir Autenticação", use_container_width=True):
+                            with st.spinner("Validando autenticação e gerando token..."):
+                                try:
+                                    temp_client = SharePointMSALClient(tenant_id=st.session_state.sp_tenant_id, client_id=st.session_state.sp_client_id)
+                                    token = temp_client.acquire_token_by_device_flow(flow)
+                                    st.session_state.sp_access_token = token
+                                    st.session_state.sp_connected = True
+                                    st.session_state.device_flow = None
+                                    st.success("✔️ Conectado com sucesso via login de usuário!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Falha de validação: {str(e)}")
+                    with col_b2:
+                        if st.button("❌ Cancelar Login", use_container_width=True):
+                            st.session_state.device_flow = None
+                            st.rerun()
+            else:
+                render_html(f"""
+                <div class="success-card">
+                    <h4>✅ Conectado com Sucesso via MSAL (Login de Usuário)!</h4>
+                    <p><strong>Tenant ID:</strong> {st.session_state.sp_tenant_id}</p>
+                    <p><strong>Client ID:</strong> {st.session_state.sp_client_id}</p>
+                    <p>Modo de produção em tempo real (SharePoint Live) está ativo e rodando com as suas credenciais.</p>
+                </div>
+                """)
+                if st.button("🔌 Desconectar SharePoint", use_container_width=True):
+                    st.session_state.sp_connected = False
+                    st.session_state.sp_access_token = None
+                    st.session_state.db_mode = "Simulado"
+                    st.rerun()
+                    
+        else:
+            st.info("🔑 **Como funciona:** Este método registra o aplicativo diretamente no Azure Active Directory e exige um segredo corporativo (*Client Secret*). Exige privilégios de administrador do Azure AD (TI) para conceder o consentimento das permissões do SharePoint.")
+            
+            with st.form("oauth2_config_form"):
+                st.markdown("<strong style='color:#00205B;'>Configurações de Identidade App-Only</strong>", unsafe_allow_html=True)
+                cfg_tenant = st.text_input("Tenant ID (ID do Diretório)", value=st.session_state.sp_tenant_id, placeholder="Ex: a2a3b4c5-...")
+                cfg_client = st.text_input("Client ID (ID do Aplicativo)", value=st.session_state.sp_client_id, placeholder="Ex: e6f7g8h9-...")
+                cfg_secret = st.text_input("Client Secret (Segredo do Cliente)", value=st.session_state.sp_client_secret, placeholder="Digite o segredo corporativo...", type="password")
+                
+                test_connection = st.form_submit_button("⚡ Validar Autenticação OAuth2")
+                
+                if test_connection:
+                    if not cfg_tenant or not cfg_client or not cfg_secret:
+                        st.error("❌ Todos os campos de credenciais do OAuth2 são obrigatórios.")
+                    else:
+                        with st.spinner("Autenticando junto ao Microsoft Azure AD..."):
+                            try:
+                                temp_client = SharePointOAuthClient(
+                                    tenant_id=cfg_tenant,
+                                    client_id=cfg_client,
+                                    client_secret=cfg_secret
+                                )
+                                token = temp_client.acquire_token()
+                                
+                                st.session_state.sp_tenant_id = cfg_tenant
+                                st.session_state.sp_client_id = cfg_client
+                                st.session_state.sp_client_secret = cfg_secret
+                                st.session_state.sp_connected = True
+                                st.session_state.sp_access_token = token
+                                
+                                render_html(f"""
+                                <div class="success-card">
+                                    <h4>✅ Conexão OAuth2 Estabelecida com Sucesso!</h4>
+                                    <p><strong>Inquilino Autenticado:</strong> {cfg_tenant}</p>
+                                    <p>O modo de produção em tempo real (SharePoint Live) agora está <strong>LIBERADO</strong>.</p>
+                                </div>
+                                """)
+                                st.rerun()
+                            except Exception as e:
+                                st.session_state.sp_connected = False
+                                st.error(f"❌ Falha de Autenticação: {str(e)}")
+            
+            if st.session_state.sp_connected and st.session_state.sp_client_secret:
+                if st.button("🔌 Desconectar SharePoint", use_container_width=True):
+                    st.session_state.sp_connected = False
+                    st.session_state.sp_access_token = None
+                    st.session_state.db_mode = "Simulado"
+                    st.rerun()
+
         st.write("")
         st.markdown("<h3 class='styled-table-title'>📐 Arquitetura de Integração e Ecossistema</h3>", unsafe_allow_html=True)
         
         render_html("""
         <div class="info-card">
-            <h4>📍 URL Da Lista do Ecossistema:</h4>
-            <p><code>https://grupoayoshii.sharepoint.com/sites/DPTO_SUPRIMENTOS/Lists/PGI_GestaoCotacoes</code></p>
-            <p><strong>Configuração de Tipo:</strong> Todas as colunas desta lista estão mapeadas como <em>Single Line of Text (Texto de Linha Única)</em>.</p>
+            <h4>📍 URLs das Listas Ativas no Ecossistema da A.Yoshii:</h4>
+            <p><strong>Lista de Dados (Suprimentos):</strong> <code>https://grupoayoshii.sharepoint.com/sites/DPTO_SUPRIMENTOS/Lists/PGI_GestaoCotacoes</code></p>
+            <p><strong>Lista de Grupos (Projetos):</strong> <code>https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS/Lists/dSUPRI_GruposInsumo</code></p>
         </div>
-        """)
-        
-        st.markdown("""
-        O aplicativo v7 está pareado com o arquivo de suporte <code>sharepoint_auth_v2.py</code> para fazer a comunicação direta sem dependências complexas externas. Ele utiliza o fluxo seguro de <strong>Client Credentials</strong> do OAuth2.
-        
-        * <strong>Tenant ID:</strong> O identificador único do inquilino do Microsoft 365 do Grupo A.Yoshii.
-        * <strong>Client ID & Secret:</strong> Identidade corporativa da aplicação registrada no portal do Azure AD.
-        * <strong>Escopo Configurado:</strong> <code>https://grupoayoshii.sharepoint.com/.default</code>
-        * <strong>Lista Alvo:</strong> <code>/sites/DPTO_SUPRIMENTOS/Lists/PGI_GestaoCotacoes</code>
         """)

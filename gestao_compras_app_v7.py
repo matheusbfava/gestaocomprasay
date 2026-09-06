@@ -17,11 +17,26 @@ except ImportError:
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v7",
+    page_title="PGI - Gestão de Cotações v8",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- FUNÇÃO DE NORMALIZAÇÃO DE COMPRADORES ---
+def format_buyer_name(name_str):
+    if not name_str:
+        return ""
+    name_str = str(name_str).strip()
+    if name_str.endswith("."):
+        return name_str
+    parts = [p for p in name_str.split() if p]
+    if len(parts) <= 1:
+        return name_str
+    first = parts[0]
+    last = parts[-1]
+    return f"{first} {last[0].upper()}."
+
 
 # --- PALETA DE CORES INSTITUCIONAIS (A.YOSHII) ---
 # Azul Escuro Institucional (Pantone 2768 C): #00205B
@@ -206,34 +221,34 @@ def get_logo_svg(theme="dark", width=145, height=30):
 # --- CRIAÇÃO DOS DROPDOWNS OFICIAIS DO CLIENTE ---
 
 LISTA_COMPRADORES = [
-    "Leonardo da Silva Fontes",
-    "Bruno Rafael Catarino",
-    "Caio Renato Siviere",
-    "Heloysa Fernanda Bressan Camacho",
-    "Angelica Aparecida Ferreira",
-    "Fernanda Ramalho Lopes",
-    "Flaviane Ferreira Fontoura",
-    "Marcos Antonio Nery de Toledo",
-    "Erik Roberto Souza Galvao",
-    "Aline Yuki Damasceno",
-    "Evelise de Oliveira Duarte",
-    "Lorena Cottar Marcal Peres",
-    "Thafani de Oliveira",
-    "Thayna Leticia Prates Da Luz",
-    "Bryan Inojosa Cuenca",
-    "Larissa Brugnaro Marciano",
-    "Lucia Yoko Watanabe",
-    "Victor Hugo Moreno Vieira",
-    "Vanessa Palermo Borges",
-    "Marcos Vinicius Ferreira",
-    "Joao Victor Oliveira dos Santos",
-    "Andre Camacho Pontremolez",
-    "Luis Fernando Hideaki Koyashiki",
-    "Gabriel Matias",
-    "Matheus Baptista Fava",
-    "Leonardo Aquino Schneider de Souza",
-    "Matheus Britto Codato",
-    "Roberta Coral de Oliveira"
+    "Leonardo F.",
+    "Bruno C.",
+    "Caio S.",
+    "Heloysa C.",
+    "Angelica F.",
+    "Fernanda L.",
+    "Flaviane F.",
+    "Marcos T.",
+    "Erik G.",
+    "Aline D.",
+    "Evelise D.",
+    "Lorena P.",
+    "Thafani O.",
+    "Thayna L.",
+    "Bryan C.",
+    "Larissa M.",
+    "Lucia W.",
+    "Victor V.",
+    "Vanessa B.",
+    "Marcos F.",
+    "Joao S.",
+    "Andre P.",
+    "Luis K.",
+    "Gabriel M.",
+    "Matheus F.",
+    "Leonardo S.",
+    "Matheus C.",
+    "Roberta O."
 ]
 
 LISTA_FALLBACK_GRUPO_INSUMO = [
@@ -333,7 +348,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "45242",
             "tipo": "Novo",
-            "Comprador": "Leonardo da Silva Fontes",
+            "Comprador": "Leonardo F.",
             "grupoinsumo": "VIDROS E ACESSORIOS",
             "cotacao": "INOX E VIDRO HORIZON",
             "due_dilligence": "OK",
@@ -356,7 +371,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "48287",
             "tipo": "Aditivo",
-            "Comprador": "Bruno Rafael Catarino",
+            "Comprador": "Bruno C.",
             "grupoinsumo": "SRV - FUNDACAO",
             "cotacao": "ADITIVO FUNDAÇÃO ALTANA - HCM",
             "due_dilligence": "OK",
@@ -379,7 +394,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "47597",
             "tipo": "Aditivo",
-            "Comprador": "Caio Renato Siviere",
+            "Comprador": "Caio S.",
             "grupoinsumo": "SRV - TERRAPLANAGEM",
             "cotacao": "ADITIVO TERRAPLANAGEM GAIA",
             "due_dilligence": "OK",
@@ -402,7 +417,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "46252",
             "tipo": "Novo",
-            "Comprador": "Heloysa Fernanda Bressan Camacho",
+            "Comprador": "Heloysa C.",
             "grupoinsumo": "SRV - INST. ELET. E COMUNICACAO",
             "cotacao": "GAIA ELÉTRICA ALLEGRO",
             "due_dilligence": "OK",
@@ -425,7 +440,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "43405",
             "tipo": "Novo",
-            "Comprador": "Angelica Aparecida Ferreira",
+            "Comprador": "Angelica F.",
             "grupoinsumo": "SRV - PAISAGISMO",
             "cotacao": "PAISAGISMO DUETTO",
             "due_dilligence": "OK",
@@ -448,7 +463,7 @@ if "db_data" not in st.session_state:
         {
             "ID_PGI": "47085",
             "tipo": "Novo",
-            "Comprador": "Fernanda Ramalho Lopes",
+            "Comprador": "Fernanda L.",
             "grupoinsumo": "SRV - PINTURA EXTERNA",
             "cotacao": "APLICAÇÃO DE FUNDO LIV",
             "due_dilligence": "OK",
@@ -522,7 +537,7 @@ def carregar_dados():
                     "ID_PGI": str(item.get("ID_PGI", "")),
                     "sp_id": item.get("ID"),
                     "tipo": str(item.get("tipo", "Novo")),
-                    "Comprador": str(item.get("Comprador", "")),
+                    "Comprador": format_buyer_name(item.get("Comprador", "")),
                     "grupoinsumo": str(item.get("grupoinsumo", "")),
                     "cotacao": str(item.get("cotacao", item.get("Title", ""))),
                     "due_dilligence": str(item.get("due_dilligence", "aguardando")),
@@ -660,8 +675,8 @@ else:
         st.write("---")
         menu_option_radio = st.radio(
             "Navegação",
-            ["Dashboard Geral", "Lançar Nova Cotação", "Gerenciamento de Registros", "Integração SharePoint"],
-            index=["Dashboard Geral", "Lançar Nova Cotação", "Gerenciamento de Registros", "Integração SharePoint"].index(st.session_state.menu_option)
+            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração SharePoint"],
+            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração SharePoint"].index(st.session_state.menu_option)
         )
         if menu_option_radio != st.session_state.menu_option:
             st.session_state.menu_option = menu_option_radio
@@ -877,60 +892,29 @@ else:
             st.info("Nenhuma cotação localizada nesta base de dados correspondente aos filtros aplicados.")
 
     # PAGE 2: LANÇAR NOVA COTAÇÃO
-    elif st.session_state.menu_option == "Lançar Nova Cotação":
-        st.markdown(f"<h3 class='styled-table-title'>🆕 Cadastrar Novo Processo Interno ({st.session_state.db_mode})</h3>", unsafe_allow_html=True)
+    elif st.session_state.menu_option == "Adicionar ID":
+        st.markdown(f"<h3 class='styled-table-title'>🆕 Cadastrar Novo ID ({st.session_state.db_mode})</h3>", unsafe_allow_html=True)
         
         render_html("""
             <div class="info-card">
-                <strong>🛡️ Controle de Integridade do Ecossistema:</strong> Como todas as colunas de dados da nossa lista 
-                <code>PGI_GestaoCotacoes</code> do SharePoint estão estruturadas como <strong>Texto Puro (Single Line of Text)</strong>, 
-                o front-end deste aplicativo realiza o encapsulamento, normalização e validações antes do envio para evitar corrupção.
+                <strong>🛡️ Adicionar Novo ID de Processo:</strong> Insira o ID PGI, selecione o Tipo de Processo e o Comprador responsável para iniciar um novo fluxo. Os demais campos de status serão iniciados automaticamente como 'aguardando' ou 'N/A' e poderão ser atualizados no menu de Gerenciamento.
             </div>
         """)
         
         with st.form("new_record_form"):
             col_f1, col_f2 = st.columns(2)
-            
             with col_f1:
-                st.markdown("<strong style='color:#00205B;'>Dados Gerais da Cotação</strong>", unsafe_allow_html=True)
                 new_id = st.number_input("ID PGI (Somente número inteiro)", min_value=1, step=1, format="%d", value=49001)
                 new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
-                new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
-                new_grupo = st.selectbox("Grupo de Insumo", lista_grupo_insumo_dynamic)
-                new_cotacao = st.text_input("Escopo / Descrição Detalhada", placeholder="Ex: CONTRATAÇÃO DE DRYWALL")
-                new_valor = st.number_input("Valor Fechado (R$)", min_value=0.0, step=100.0, format="%.2f")
-                new_savings = st.number_input("Savings Alcançado (R$)", min_value=0.0, step=100.0, format="%.2f")
-                
             with col_f2:
-                st.markdown("<strong style='color:#00205B;'>Etapas de Validação Inicial</strong>", unsafe_allow_html=True)
-                new_orcamento = st.selectbox("Solicitar Orçamento", OPCOES_STATUS)
-                new_due = st.selectbox("Due Diligence", OPCOES_STATUS)
-                new_eq = st.selectbox("Equalização", OPCOES_STATUS)
-                new_eng = st.selectbox("Validação Engenharia (ER)", OPCOES_STATUS)
-                new_ger = st.selectbox("Validação Coordenador/Gerente (CO/GE)", OPCOES_STATUS)
-                new_sup = st.selectbox("Validação Gestão Suprimentos", OPCOES_STATUS)
+                new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
                 
-            st.markdown("<hr style='border-color:#F4F6F9;'>", unsafe_allow_html=True)
-            col_f3, col_f4 = st.columns(2)
-            with col_f3:
-                st.markdown("<strong style='color:#00205B;'>Etapas de Contratação & Sistemas</strong>", unsafe_allow_html=True)
-                new_req = st.selectbox("Abertura Reclamação/RM (Mega)", OPCOES_STATUS)
-                new_contr = st.selectbox("Contrato Mega", OPCOES_STATUS)
-                new_param = st.selectbox("Parametrização Fiscal", OPCOES_STATUS)
-                new_minuta = st.selectbox("Minuta Contratual", OPCOES_STATUS)
-            with col_f4:
-                st.markdown("<strong style='color:#00205B;'>Assinatura & Auditoria de Pasta</strong>", unsafe_allow_html=True)
-                new_ass = st.selectbox("Assinatura Eletrônica", OPCOES_STATUS)
-                new_cred = st.selectbox("Credenciamento - GT", OPCOES_STATUS)
-                new_comunicar = st.selectbox("Informar Engenheiro", OPCOES_STATUS)
-                new_aud = st.selectbox("Auditar Pasta Final", OPCOES_STATUS)
-
             st.write("")
-            submit_new = st.form_submit_button("💾 Salvar Registro e Enviar")
+            submit_new = st.form_submit_button("💾 Salvar Novo ID")
             
             if submit_new:
-                if not new_id or not new_cotacao:
-                    st.error("❌ Os campos ID_PGI e Escopo são obrigatórios.")
+                if not new_id:
+                    st.error("❌ O ID PGI é obrigatório.")
                 elif str(new_id) in [str(x) for x in df_current["ID_PGI"].values]:
                     st.error(f"❌ Erro de Unicidade: Já existe um registro com o ID_PGI '{new_id}'.")
                 else:
@@ -938,51 +922,51 @@ else:
                         "ID_PGI": str(int(new_id)),
                         "tipo": str(new_tipo),
                         "Comprador": str(new_comprador),
-                        "grupoinsumo": str(new_grupo),
-                        "cotacao": str(new_cotacao).upper(),
-                        "due_dilligence": str(new_due),
-                        "equalizacao": str(new_eq),
-                        "orcamento": str(new_orcamento),
-                        "validacao_eng": str(new_eng),
-                        "validacao_ger": str(new_ger),
-                        "validacao_sup": str(new_sup),
-                        "req_mega": str(new_req),
-                        "contr_mega": str(new_contr),
-                        "param_fiscal": str(new_param),
-                        "minuta": str(new_minuta),
-                        "ass_digital": str(new_ass),
-                        "credenciamento": str(new_cred),
-                        "comunicar": str(new_comunicar),
-                        "savings": f"{new_savings:.2f}",
-                        "aud_pasta": str(new_aud),
-                        "valor_fechado": f"{new_valor:.2f}"
+                        "grupoinsumo": "N/A",
+                        "cotacao": f"PROCESSO PGI {int(new_id)}",
+                        "due_dilligence": "aguardando",
+                        "equalizacao": "aguardando",
+                        "orcamento": "aguardando",
+                        "validacao_eng": "aguardando",
+                        "validacao_ger": "aguardando",
+                        "validacao_sup": "aguardando",
+                        "req_mega": "aguardando",
+                        "contr_mega": "aguardando",
+                        "param_fiscal": "N/A",
+                        "minuta": "N/A",
+                        "ass_digital": "aguardando",
+                        "credenciamento": "N/A",
+                        "comunicar": "N/A",
+                        "savings": "0.00",
+                        "aud_pasta": "aguardando",
+                        "valor_fechado": "0.00"
                     }
                     
                     if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
                         try:
                             sp_payload = {
-                                "Title": str(new_cotacao).upper(),
+                                "Title": f"PROCESSO PGI {int(new_id)}",
                                 "ID_PGI": str(int(new_id)),
                                 "tipo": str(new_tipo),
                                 "Comprador": str(new_comprador),
-                                "grupoinsumo": str(new_grupo),
-                                "cotacao": str(new_cotacao).upper(),
-                                "due_dilligence": str(new_due),
-                                "equalizacao": str(new_eq),
-                                "orcamento": str(new_orcamento),
-                                "validacao_eng": str(new_eng),
-                                "validacao_ger": str(new_ger),
-                                "validacao_sup": str(new_sup),
-                                "req_mega": str(new_req),
-                                "contr_mega": str(new_contr),
-                                "param_fiscal": str(new_param),
-                                "minuta": str(new_minuta),
-                                "ass_digital": str(new_ass),
-                                "credenciamento": str(new_cred),
-                                "comunicar": str(new_comunicar),
-                                "savings": f"{new_savings:.2f}",
-                                "aud_pasta": str(new_aud),
-                                "valor_fechado": f"{new_valor:.2f}"
+                                "grupoinsumo": "N/A",
+                                "cotacao": f"PROCESSO PGI {int(new_id)}",
+                                "due_dilligence": "aguardando",
+                                "equalizacao": "aguardando",
+                                "orcamento": "aguardando",
+                                "validacao_eng": "aguardando",
+                                "validacao_ger": "aguardando",
+                                "validacao_sup": "aguardando",
+                                "req_mega": "aguardando",
+                                "contr_mega": "aguardando",
+                                "param_fiscal": "N/A",
+                                "minuta": "N/A",
+                                "ass_digital": "aguardando",
+                                "credenciamento": "N/A",
+                                "comunicar": "N/A",
+                                "savings": "0.00",
+                                "aud_pasta": "aguardando",
+                                "valor_fechado": "0.00"
                             }
                             sp_client.insert_list_item(sp_payload)
                             st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no SharePoint.")
@@ -1025,13 +1009,12 @@ else:
                         </div>
                     """)
                     
-                    col_e1, col_e2 = st.columns(2)
+                    col_e1, col_e2, col_e3 = st.columns(3)
                     with col_e1:
                         st.markdown("<strong style='color:#00205B;'>Dados do Processo</strong>", unsafe_allow_html=True)
                         edit_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS, index=LISTA_TIPOS.index(item["tipo"]) if "tipo" in item and item["tipo"] in LISTA_TIPOS else 0)
                         edit_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES, index=LISTA_COMPRADORES.index(item["Comprador"]) if "Comprador" in item and item["Comprador"] in LISTA_COMPRADORES else 0)
                         
-                        # Localiza índice do grupo insumo do registro
                         default_grupo_idx = 0
                         if "grupoinsumo" in item and item["grupoinsumo"] in lista_grupo_insumo_dynamic:
                             default_grupo_idx = lista_grupo_insumo_dynamic.index(item["grupoinsumo"])
@@ -1041,32 +1024,25 @@ else:
                         edit_valor = st.number_input("Valor Fechado (R$)", value=float(item["valor_fechado"]), step=100.0, format="%.2f")
                         edit_savings = st.number_input("Savings (R$)", value=float(item["savings"]), step=100.0, format="%.2f")
                         
-                        st.markdown("<br><strong style='color:#00205B;'>Status de Compliance e Validação</strong>", unsafe_allow_html=True)
+                    with col_e2:
+                        st.markdown("<strong style='color:#00205B;'>Validação & Compliance</strong>", unsafe_allow_html=True)
+                        edit_orcamento = st.selectbox("Solicitar Orçamento", OPCOES_STATUS, index=OPCOES_STATUS.index(item["orcamento"]) if item["orcamento"] in OPCOES_STATUS else 0)
                         edit_due = st.selectbox("Due Diligence", OPCOES_STATUS, index=OPCOES_STATUS.index(item["due_dilligence"]) if item["due_dilligence"] in OPCOES_STATUS else 0)
                         edit_eq = st.selectbox("Equalização", OPCOES_STATUS, index=OPCOES_STATUS.index(item["equalizacao"]) if item["equalizacao"] in OPCOES_STATUS else 0)
                         edit_eng = st.selectbox("Valid. Engenharia (ER)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_eng"]) if item["validacao_eng"] in OPCOES_STATUS else 0)
-                        
-                    with col_e2:
-                        st.markdown("<strong style='color:#00205B;'>Aprovações Suprimentos</strong>", unsafe_allow_html=True)
-                        edit_orcamento = st.selectbox("Solicitar Orçamento", OPCOES_STATUS, index=OPCOES_STATUS.index(item["orcamento"]) if item["orcamento"] in OPCOES_STATUS else 0)
                         edit_ger = st.selectbox("Valid. Gerente (CO/GE)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_ger"]) if item["validacao_ger"] in OPCOES_STATUS else 0)
                         edit_sup = st.selectbox("Valid. Gestão Suprimentos", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_sup"]) if item["validacao_sup"] in OPCOES_STATUS else 0)
-                        edit_req = st.selectbox("Abertura Reclamação/RM (Mega)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["req_mega"]) if item["req_mega"] in OPCOES_STATUS else 0)
                         
-                        st.markdown("<br><strong style='color:#00205B;'>Contratação & Minuta</strong>", unsafe_allow_html=True)
+                    with col_e3:
+                        st.markdown("<strong style='color:#00205B;'>Sistemas & Auditoria</strong>", unsafe_allow_html=True)
+                        edit_req = st.selectbox("Abertura Reclamação/RM (Mega)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["req_mega"]) if item["req_mega"] in OPCOES_STATUS else 0)
                         edit_contr = st.selectbox("Contrato Mega", OPCOES_STATUS, index=OPCOES_STATUS.index(item["contr_mega"]) if item["contr_mega"] in OPCOES_STATUS else 0)
                         edit_param = st.selectbox("Parametrização Fiscal", OPCOES_STATUS, index=OPCOES_STATUS.index(item["param_fiscal"]) if item["param_fiscal"] in OPCOES_STATUS else 0)
                         edit_minuta = st.selectbox("Minuta Contratual", OPCOES_STATUS, index=OPCOES_STATUS.index(item["minuta"]) if item["minuta"] in OPCOES_STATUS else 0)
                         edit_ass = st.selectbox("Assinatura Eletrônica", OPCOES_STATUS, index=OPCOES_STATUS.index(item["ass_digital"]) if item["ass_digital"] in OPCOES_STATUS else 0)
-                    
-                    st.markdown("<hr style='border-color:#F4F6F9;'>", unsafe_allow_html=True)
-                    col_e3, col_e4 = st.columns(2)
-                    with col_e3:
                         edit_cred = st.selectbox("Credenciamento - GT", OPCOES_STATUS, index=OPCOES_STATUS.index(item["credenciamento"]) if item["credenciamento"] in OPCOES_STATUS else 0)
-                    with col_e4:
                         edit_comunicar = st.selectbox("Informar Engenheiro", OPCOES_STATUS, index=OPCOES_STATUS.index(item["comunicar"]) if item["comunicar"] in OPCOES_STATUS else 0)
-                    
-                    edit_aud = st.selectbox("Audit. Pasta Final", OPCOES_STATUS, index=OPCOES_STATUS.index(item["aud_pasta"]) if item["aud_pasta"] in OPCOES_STATUS else 0)
+                        edit_aud = st.selectbox("Audit. Pasta Final", OPCOES_STATUS, index=OPCOES_STATUS.index(item["aud_pasta"]) if item["aud_pasta"] in OPCOES_STATUS else 0)
                     
                     st.write("")
                     submit_edit = st.form_submit_button("💾 Salvar Alterações")

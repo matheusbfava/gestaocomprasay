@@ -1186,7 +1186,9 @@ else:
             if not st.session_state.sp_connected:
                 if st.session_state.device_flow is None:
                     if st.button("🔑 Iniciar Login via Código de Dispositivo", use_container_width=True):
-                        if not cfg_tenant or not cfg_client:
+                        if SharePointMSALClient is None:
+                            st.error("❌ **A biblioteca 'msal' não está instalada no servidor do Streamlit!** Adicione `msal>=1.35.0` ao arquivo `requirements.txt` no seu GitHub, salve e aguarde o Streamlit reiniciar antes de tentar novamente.")
+                        elif not cfg_tenant or not cfg_client:
                             st.error("❌ Os campos Tenant ID e Client ID são obrigatórios.")
                         else:
                             try:

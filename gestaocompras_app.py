@@ -8,17 +8,17 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from google_sheets_auth_v2 import GoogleSheetsClient
+    from supabase_client_v1 import SupabaseClient
 except ImportError:
     try:
-        from google_sheets_auth_v1 import GoogleSheetsClient
+        from supabase_client_v1 import SupabaseClient
     except ImportError:
-        GoogleSheetsClient = None
+        SupabaseClient = None
 
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v17 (Google Sheets)",
+    page_title="PGI - Gestão de Cotações v19 (Supabase)",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -327,21 +327,17 @@ LISTA_FALLBACK_GRUPO_INSUMO = [
 
 LISTA_TIPOS = ["Novo", "Aditivo"]
 
-# --- CONFIGURAÇÕES DE INTEGRAÇÃO (SALVAS EM SESSION STATE COM SUPORTE A SECRETS) ---
-# O Streamlit tenta carregar primeiro do st.secrets se configurado no painel da nuvem.
-if "gs_auth_type" not in st.session_state:
-    st.session_state.gs_auth_type = st.secrets.get("gs_auth_type", "Pública (Somente Leitura via URL)")
-if "gs_spreadsheet_url" not in st.session_state:
-    st.session_state.gs_spreadsheet_url = st.secrets.get("gs_spreadsheet_url", "")
-if "gs_credentials_json" not in st.session_state:
-    st.session_state.gs_credentials_json = st.secrets.get("gs_credentials_json", "")
-if "gs_connected" not in st.session_state:
-    # Se os segredos estiverem presentes, conecta automaticamente
-    has_secrets = bool(st.secrets.get("gs_spreadsheet_url", ""))
-    st.session_state.gs_connected = st.secrets.get("gs_connected", has_secrets)
+# --- CONFIGURAÇÕES DE INTEGRAÇÃO (SUPABASE - BANCO DE DADOS ALTA PERFORMANCE) ---
+if "sb_url" not in st.session_state:
+    st.session_state.sb_url = st.secrets.get("SUPABASE_URL", st.secrets.get("supabase_url", ""))
+if "sb_key" not in st.session_state:
+    st.session_state.sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("supabase_key", ""))
+if "sb_connected" not in st.session_state:
+    has_secrets = bool(st.session_state.sb_url and st.session_state.sb_key)
+    st.session_state.sb_connected = st.secrets.get("sb_connected", has_secrets)
 if "db_mode" not in st.session_state:
-    has_secrets = bool(st.secrets.get("gs_spreadsheet_url", ""))
-    st.session_state.db_mode = st.secrets.get("db_mode", "Google Sheets (Live)" if has_secrets else "Simulado")
+    has_secrets = bool(st.session_state.sb_url and st.session_state.sb_key)
+    st.session_state.db_mode = st.secrets.get("db_mode", "Supabase (Live)" if has_secrets else "Simulado")
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Dashboard Geral"
 if "selected_pgi_to_edit" not in st.session_state:
@@ -513,30 +509,29 @@ if "db_data" not in st.session_state:
 # Opções padronizadas de status para garantir integridade das colunas de texto do SharePoint
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# Instancia o cliente SharePoint conforme a conexão ativa (MSAL ou OAuth2)
-# --- INSTANCIAÇÃO DO CLIENTE GOOGLE SHEETS ---
-gs_client = None
-if st.session_state.gs_connected and GoogleSheetsClient:
+# --- INSTANCIAÇÃO DO CLIENTE SUPABASE ---
+sb_client = None
+if st.session_state.sb_connected and SupabaseClient:
     try:
-        gs_client = GoogleSheetsClient(
-            spreadsheet_url=st.session_state.gs_spreadsheet_url,
-            credentials_json=st.session_state.gs_credentials_json if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" else None
+        sb_client = SupabaseClient(
+            url=st.session_state.sb_url,
+            key=st.session_state.sb_key
         )
-        gs_client.connect()
+        sb_client.connect()
     except Exception as e:
-        st.sidebar.error(f"❌ Erro ao inicializar o Google Sheets: {str(e)}")
-        st.session_state.gs_connected = False
+        st.sidebar.error(f"❌ Erro ao inicializar o Supabase: {str(e)}")
+        st.session_state.sb_connected = False
 
 # --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO (COM CACHE) ---
 @st.cache_data(ttl=300)
 def carregar_grupos_insumo():
     """
-    Busca os nomes dos grupos de insumo direto do Google Sheets (aba dSUPRI_GruposInsumo / NomeGrupo)
+    Busca os nomes dos grupos de insumo direto do Supabase (aba dSUPRI_GruposInsumo / NomeGrupo)
     se conectado em modo Live. Caso contrário, retorna os 50 itens fornecidos pelo usuário.
     """
-    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
+    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
         try:
-            items = gs_client.get_list_items(list_name="dSUPRI_GruposInsumo")
+            items = sb_client.get_list_items(list_name="dSUPRI_GruposInsumo")
             grupos = []
             for item in items:
                 grupo_name = item.get("NomeGrupo", item.get("Title", ""))
@@ -546,16 +541,16 @@ def carregar_grupos_insumo():
             if grupos:
                 return grupos
         except Exception as e:
-            st.sidebar.warning(f"⚠️ Falha ao ler dSUPRI_GruposInsumo no Google Sheets: {str(e)}")
+            st.sidebar.warning(f"⚠️ Falha ao ler dSUPRI_GruposInsumo no Supabase: {str(e)}")
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
 # --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (COM CACHE) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
-    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
+    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
         try:
-            items = gs_client.get_list_items(list_name="PGI_GestaoCotacoes")
+            items = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
             dados_mapeados = []
             for item in items:
                 dados_mapeados.append({
@@ -586,7 +581,7 @@ def carregar_dados():
                 })
             return dados_mapeados
         except Exception as e:
-            st.sidebar.error(f"⚠️ Erro ao ler dados do Google Sheets: {str(e)}")
+            st.sidebar.error(f"⚠️ Erro ao ler dados do Supabase: {str(e)}")
             st.sidebar.warning("🔄 Redirecionando automaticamente para o modo de simulação.")
             st.session_state.db_mode = "Simulado"
             return st.session_state.db_data
@@ -595,20 +590,20 @@ def carregar_dados():
 
 # --- FUNÇÃO PARA EXCLUIR REGISTRO ---
 def excluir_registro(pgi_id):
-    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
+    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
         try:
-            items = gs_client.get_list_items(list_name="PGI_GestaoCotacoes")
+            items = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
             target_item = next((item for item in items if str(item.get("ID_PGI", "")) == str(pgi_id)), None)
             if target_item and target_item.get("ID"):
                 sp_id = target_item.get("ID")
-                gs_client.delete_list_item(sp_id, list_name="PGI_GestaoCotacoes")
+                sb_client.delete_list_item(sp_id, list_name="PGI_GestaoCotacoes")
                 st.cache_data.clear()
                 return True
             else:
                 st.error("Linha da planilha não localizada para este PGI.")
                 return False
         except Exception as e:
-            st.error(f"❌ Erro ao excluir do Google Sheets: {str(e)}")
+            st.error(f"❌ Erro ao excluir do Supabase: {str(e)}")
             return False
     else:
         st.session_state.db_data = [item for item in st.session_state.db_data if str(item["ID_PGI"]) != str(pgi_id)]
@@ -694,8 +689,8 @@ else:
         st.write("---")
         st.subheader("🗄️ Origem dos Dados")
         
-        if st.session_state.gs_connected:
-            options_mode = ["Simulado", "Google Sheets (Live)"]
+        if st.session_state.sb_connected:
+            options_mode = ["Simulado", "Supabase (Live)"]
             selected_mode = st.radio(
                 "Alternar Base de Dados",
                 options_mode,
@@ -707,7 +702,7 @@ else:
         else:
             render_html("""
                 <div style="background-color: rgba(255,111,0,0.15); border: 1px solid #FF6F00; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
-                    ⚠️ <strong>Google Sheets Desconectado.</strong> Executando modo simulado.
+                    ⚠️ <strong>Supabase Desconectado.</strong> Executando modo simulado.
                 </div>
             """)
             st.session_state.db_mode = "Simulado"
@@ -715,8 +710,8 @@ else:
         st.write("---")
         menu_option_radio = st.radio(
             "Navegação",
-            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"],
-            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"].index(st.session_state.menu_option) if st.session_state.menu_option in ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"] else 0
+            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"],
+            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"].index(st.session_state.menu_option) if st.session_state.menu_option in ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"] else 0
         )
         if menu_option_radio != st.session_state.menu_option:
             st.session_state.menu_option = menu_option_radio
@@ -1005,7 +1000,7 @@ else:
                         "valor_fechado": "0.00"
                     }
                     
-                    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
+                    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
                         try:
                             sp_payload = {
                                 "ID_PGI": str(int(new_id)),
@@ -1030,11 +1025,11 @@ else:
                                 "aud_pasta": "aguardando",
                                 "valor_fechado": "0.00"
                             }
-                            gs_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
+                            sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Google Sheets.")
+                            st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Supabase.")
                         except Exception as e:
-                            st.error(f"❌ Erro ao gravar no Google Sheets: {str(e)}")
+                            st.error(f"❌ Erro ao gravar no Supabase: {str(e)}")
                     else:
                         st.session_state.db_data.append(new_item)
                         st.success(f"✔️ Sucesso! Processo {new_id} registrado localmente (Base Simulada).")
@@ -1152,14 +1147,14 @@ else:
                             "aud_pasta": str(edit_aud),
                             "valor_fechado": f"{edit_valor:.2f}"                        }
                         
-                        if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
+                        if st.session_state.db_mode == "Supabase (Live)" and sb_client:
                             try:
                                 updated_fields["ID_PGI"] = selected_id
-                                gs_client.update_list_item(None, updated_fields, list_name="PGI_GestaoCotacoes")
+                                sb_client.update_list_item(None, updated_fields, list_name="PGI_GestaoCotacoes")
                                 st.cache_data.clear()
-                                st.success("✔️ Registro atualizado com sucesso DIRETAMENTE no Google Sheets!")
+                                st.success("✔️ Registro atualizado com sucesso DIRETAMENTE no Supabase!")
                             except Exception as e:
-                                st.error(f"❌ Erro ao atualizar no Google Sheets: {str(e)}")
+                                st.error(f"❌ Erro ao atualizar no Supabase: {str(e)}")
                         else:
                             updated_fields["ID_PGI"] = selected_id
                             sim_idx = next(i for i, sim_item in enumerate(st.session_state.db_data) if str(sim_item["ID_PGI"]) == str(selected_id))
@@ -1169,76 +1164,66 @@ else:
                         st.session_state.menu_option = "Dashboard Geral"
                         st.rerun()
 
-    # PAGE 4: DETALHES DE INTEGRAÇÃO DO SHAREPOINT E OAUTH2
-    elif st.session_state.menu_option == "Integração Google Sheets":
-        st.markdown("<h3 class='styled-table-title'>🔑 Painel de Integração Ativa via Google Sheets</h3>", unsafe_allow_html=True)
+    # PAGE 4: PAINEL DE CONFIGURAÇÃO E TESTE DO SUPABASE
+    elif st.session_state.menu_option == "Integração Supabase":
+        st.markdown("<h3 class='styled-table-title'>⚡ Painel de Integração do Supabase (Banco SQL de Alta Performance)</h3>", unsafe_allow_html=True)
         
-        # Seleção de tipo de login
-        auth_type_sel = st.radio(
-            "Selecione o Método de Integração",
-            ["Pública (Somente Leitura via URL)", "Privada (Leitura e Escrita via Service Account JSON)"],
-            index=0 if st.session_state.get("gs_auth_type", "Pública (Somente Leitura via URL)") == "Pública (Somente Leitura via URL)" else 1
-        )
+        render_html("""
+            <div class="info-card">
+                <strong>🚀 Banco de Dados SQL de Alta Performance:</strong> O Supabase oferece respostas em milissegundos para consultas e atualizações de dados. Configure a sua <code>SUPABASE_URL</code> e a sua <code>SUPABASE_KEY</code> (chave anon/public) abaixo ou através da aba <strong>Secrets</strong> do Streamlit Cloud.
+            </div>
+        """)
         
-        if auth_type_sel != st.session_state.get("gs_auth_type"):
-            st.session_state.gs_auth_type = auth_type_sel
-            st.rerun()
+        with st.form("supabase_config_form"):
+            st.markdown("<strong style='color:#00205B;'>Credenciais de Acesso do Projeto Supabase</strong>", unsafe_allow_html=True)
+            cfg_sb_url = st.text_input("Supabase Project URL", value=st.session_state.sb_url, placeholder="Ex: https://xyzcompany.supabase.co")
+            cfg_sb_key = st.text_input("Supabase Anon / API Key", value=st.session_state.sb_key, type="password", placeholder="Ex: eyJhbGciOiJIUzI1NiI...")
             
-        with st.form("google_sheets_config_form"):
-            st.markdown("<strong style='color:#00205B;'>Configurações da Planilha do Google Sheets</strong>", unsafe_allow_html=True)
-            cfg_url = st.text_input("URL da Planilha do Google Sheets (Link de compartilhamento)", value=st.session_state.gs_spreadsheet_url, placeholder="Ex: https://docs.google.com/spreadsheets/d/...")
+            test_sb_conn = st.form_submit_button("⚡ Validar e Conectar ao Supabase")
             
-            cfg_json = ""
-            if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)":
-                st.info("💡 **Dica de Segurança:** Para gravar e editar dados na planilha, crie uma Service Account gratuita no console de desenvolvedor do Google Cloud, baixe a chave em formato JSON e cole seu conteúdo abaixo. Não se esqueça de compartilhar a planilha do Google Sheets com o e-mail da sua Service Account!")
-                cfg_json = st.text_area("JSON de Credenciais da Service Account", value=st.session_state.gs_credentials_json, height=180, placeholder='{"type": "service_account", "project_id": "..."}')
-                
-            test_connection = st.form_submit_button("⚡ Validar e Salvar Conexão")
-            
-            if test_connection:
-                if not cfg_url:
-                    st.error("❌ A URL da planilha é obrigatória.")
-                elif st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" and not cfg_json:
-                    st.error("❌ O JSON de credenciais é obrigatório para conexões privadas de escrita.")
+            if test_sb_conn:
+                if not cfg_sb_url or not cfg_sb_key:
+                    st.error("❌ A URL do Projeto e a Chave API são obrigatórias.")
                 else:
-                    with st.spinner("Conectando e validando acesso ao Google Sheets..."):
+                    with st.spinner("Testando conexão em tempo real com o Supabase..."):
                         try:
-                            temp_client = GoogleSheetsClient(
-                                spreadsheet_url=cfg_url,
-                                credentials_json=cfg_json if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" else None
-                            )
-                            temp_client.connect()
+                            temp_sb = SupabaseClient(url=cfg_sb_url, key=cfg_sb_key)
+                            temp_sb.connect()
                             
-                            st.session_state.gs_spreadsheet_url = cfg_url
-                            if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)":
-                                st.session_state.gs_credentials_json = cfg_json
-                                
-                            st.session_state.gs_connected = True
-                            st.session_state.db_mode = "Google Sheets (Live)"
+                            st.session_state.sb_url = cfg_sb_url
+                            st.session_state.sb_key = cfg_sb_key
+                            st.session_state.sb_connected = True
+                            st.session_state.db_mode = "Supabase (Live)"
                             
-                            st.success("✔️ Conexão estabelecida com sucesso! O modo em tempo real foi ativado.")
+                            st.cache_data.clear()
+                            st.success("✔️ Conexão com o Supabase estabelecida com sucesso!")
                             st.rerun()
                         except Exception as e:
-                            st.session_state.gs_connected = False
+                            st.session_state.sb_connected = False
                             st.session_state.db_mode = "Simulado"
-                            st.error(f"❌ Falha de Conexão: {str(e)}")
+                            st.error(f"❌ Falha ao conectar ao Supabase: {str(e)}")
                             
-        if st.session_state.gs_connected:
-            if st.button("🔌 Desconectar Google Sheets", use_container_width=True):
-                st.session_state.gs_connected = False
+        if st.session_state.sb_connected:
+            render_html(f"""
+                <div class="success-card">
+                    <h4>✅ Conectado ao Supabase com Sucesso!</h4>
+                    <p><strong>Project URL:</strong> <code>{st.session_state.sb_url}</code></p>
+                    <p>Modo Live ativo. O aplicativo está lendo e gravando diretamente no banco SQL.</p>
+                </div>
+            """)
+            if st.button("🔌 Desconectar Supabase", use_container_width=True):
+                st.session_state.sb_connected = False
                 st.session_state.db_mode = "Simulado"
                 st.rerun()
                 
         st.write("")
-        st.markdown("<h3 class='styled-table-title'>📐 Arquitetura de Integração e Ecossistema</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📐 Estrutura das Tabelas do Supabase (SQL Editor)</h3>", unsafe_allow_html=True)
         
         render_html("""
         <div class="info-card">
-            <h4>📍 Estrutura Requerida na Planilha Google Sheets:</h4>
-            <p>Sua planilha do Google Sheets deve conter exatamente <strong>duas abas/pags</strong> com as seguintes colunas na primeira linha (cabeçalhos):</p>
-            <ol>
-                <li><strong>PGI_GestaoCotacoes:</strong> <code>ID_PGI, tipo, Comprador, grupoinsumo, cotacao, due_dilligence, equalizacao, orcamento, validacao_eng, validacao_ger, validacao_sup, req_mega, contr_mega, param_fiscal, minuta, ass_digital, credenciamento, comunicar, savings, aud_pasta, valor_fechado</code></li>
-                <li><strong>dSUPRI_GruposInsumo:</strong> <code>NomeGrupo</code></li>
-            </ol>
+            <h4>📍 Nomes das Tabelas Ativas no Supabase:</h4>
+            <p>1. <code>PGI_GestaoCotacoes</code> (Armazena as 21 colunas de cotações e o ID_PGI como Chave Primária)</p>
+            <p>2. <code>dSUPRI_GruposInsumo</code> (Armazena os nomes dos grupos de insumo)</p>
+            <p><em>Execute o arquivo <code>schema.sql</code> fornecido no SQL Editor do seu painel Supabase para criar as tabelas automaticamente.</em></p>
         </div>
         """)

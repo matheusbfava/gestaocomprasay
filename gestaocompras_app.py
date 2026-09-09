@@ -971,9 +971,10 @@ else:
             submit_new = st.form_submit_button("💾 Salvar Novo ID")
             
             if submit_new:
+                existing_ids = [str(item.get("ID_PGI", "")) for item in db_data_current]
                 if not new_id:
                     st.error("❌ O ID PGI é obrigatório.")
-                elif str(new_id) in [str(x) for x in df_current["ID_PGI"].values]:
+                elif str(new_id) in existing_ids:
                     st.error(f"❌ Erro de Unicidade: Já existe um registro com o ID_PGI '{new_id}'.")
                 else:
                     new_item = {

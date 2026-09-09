@@ -15,7 +15,7 @@ except ImportError:
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v14 (Google Sheets)",
+    page_title="PGI - Gestão de Cotações v15 (Google Sheets)",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -304,17 +304,21 @@ LISTA_FALLBACK_GRUPO_INSUMO = [
 
 LISTA_TIPOS = ["Novo", "Aditivo"]
 
-# --- CONFIGURAÇÕES DE INTEGRAÇÃO (SALVAS EM SESSION STATE) ---
+# --- CONFIGURAÇÕES DE INTEGRAÇÃO (SALVAS EM SESSION STATE COM SUPORTE A SECRETS) ---
+# O Streamlit tenta carregar primeiro do st.secrets se configurado no painel da nuvem.
 if "gs_auth_type" not in st.session_state:
-    st.session_state.gs_auth_type = "Pública (Somente Leitura via URL)" # "Pública (Somente Leitura via URL)" ou "Privada (Leitura e Escrita via Service Account JSON)"
+    st.session_state.gs_auth_type = st.secrets.get("gs_auth_type", "Pública (Somente Leitura via URL)")
 if "gs_spreadsheet_url" not in st.session_state:
-    st.session_state.gs_spreadsheet_url = ""
+    st.session_state.gs_spreadsheet_url = st.secrets.get("gs_spreadsheet_url", "")
 if "gs_credentials_json" not in st.session_state:
-    st.session_state.gs_credentials_json = ""
+    st.session_state.gs_credentials_json = st.secrets.get("gs_credentials_json", "")
 if "gs_connected" not in st.session_state:
-    st.session_state.gs_connected = False
+    # Se os segredos estiverem presentes, conecta automaticamente
+    has_secrets = bool(st.secrets.get("gs_spreadsheet_url", ""))
+    st.session_state.gs_connected = st.secrets.get("gs_connected", has_secrets)
 if "db_mode" not in st.session_state:
-    st.session_state.db_mode = "Simulado"  # Modos: 'Simulado' ou 'Google Sheets (Live)'
+    has_secrets = bool(st.secrets.get("gs_spreadsheet_url", ""))
+    st.session_state.db_mode = st.secrets.get("db_mode", "Google Sheets (Live)" if has_secrets else "Simulado")
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Dashboard Geral"
 if "selected_pgi_to_edit" not in st.session_state:

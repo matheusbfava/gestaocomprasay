@@ -527,7 +527,8 @@ if st.session_state.gs_connected and GoogleSheetsClient:
         st.sidebar.error(f"❌ Erro ao inicializar o Google Sheets: {str(e)}")
         st.session_state.gs_connected = False
 
-# --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO ---
+# --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO (COM CACHE) ---
+@st.cache_data(ttl=300)
 def carregar_grupos_insumo():
     """
     Busca os nomes dos grupos de insumo direto do Google Sheets (aba dSUPRI_GruposInsumo / NomeGrupo)
@@ -549,7 +550,8 @@ def carregar_grupos_insumo():
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
-# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS ---
+# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (COM CACHE) ---
+@st.cache_data(ttl=300)
 def carregar_dados():
     if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
         try:
@@ -600,6 +602,7 @@ def excluir_registro(pgi_id):
             if target_item and target_item.get("ID"):
                 sp_id = target_item.get("ID")
                 gs_client.delete_list_item(sp_id, list_name="PGI_GestaoCotacoes")
+                st.cache_data.clear()
                 return True
             else:
                 st.error("Linha da planilha não localizada para este PGI.")
@@ -717,6 +720,12 @@ else:
         )
         if menu_option_radio != st.session_state.menu_option:
             st.session_state.menu_option = menu_option_radio
+            st.rerun()
+        
+        st.write("---")
+        if st.button("🔄 Atualizar Cache de Dados", use_container_width=True):
+            st.cache_data.clear()
+            st.success("⚡ Cache limpo! Recarregando dados...")
             st.rerun()
         
         st.write("---")
@@ -1022,6 +1031,7 @@ else:
                                 "valor_fechado": "0.00"
                             }
                             gs_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
+                            st.cache_data.clear()
                             st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Google Sheets.")
                         except Exception as e:
                             st.error(f"❌ Erro ao gravar no Google Sheets: {str(e)}")
@@ -1146,7 +1156,8 @@ else:
                             try:
                                 updated_fields["ID_PGI"] = selected_id
                                 gs_client.update_list_item(None, updated_fields, list_name="PGI_GestaoCotacoes")
-                                st.success("✔️ Registro updated_fields atualizado com sucesso DIRETAMENTE no Google Sheets!")
+                                st.cache_data.clear()
+                                st.success("✔️ Registro atualizado com sucesso DIRETAMENTE no Google Sheets!")
                             except Exception as e:
                                 st.error(f"❌ Erro ao atualizar no Google Sheets: {str(e)}")
                         else:

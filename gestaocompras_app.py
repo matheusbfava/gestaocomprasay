@@ -18,7 +18,7 @@ except ImportError:
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v15 (Google Sheets)",
+    page_title="PGI - Gestão de Cotações v17 (Google Sheets)",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -37,6 +37,26 @@ def format_buyer_name(name_str):
     first = parts[0]
     last = parts[-1]
     return f"{first} {last[0].upper()}."
+
+# --- FUNÇÃO DE CONVERSÃO NUMÉRICA SEGURA PARA MOEDA E VALORES ---
+def parse_float_safe(val):
+    if val is None or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).replace("R$", "").replace("r$", "").replace(" ", "").replace("\xa0", "").strip()
+    if not val_str:
+        return 0.0
+    if "," in val_str and "." in val_str:
+        val_str = val_str.replace(".", "").replace(",", ".")
+    elif "," in val_str:
+        val_str = val_str.replace(",", ".")
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+
 
 
 # --- PALETA DE CORES INSTITUCIONAIS (A.YOSHII) ---

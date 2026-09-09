@@ -8,9 +8,12 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from google_sheets_auth_v1 import GoogleSheetsClient
+    from google_sheets_auth_v2 import GoogleSheetsClient
 except ImportError:
-    GoogleSheetsClient = None
+    try:
+        from google_sheets_auth_v1 import GoogleSheetsClient
+    except ImportError:
+        GoogleSheetsClient = None
 
 
 # Configuração da página e visual premium do Grupo A.Yoshii
@@ -536,9 +539,11 @@ def carregar_dados():
                 dados_mapeados.append({
                     "ID_PGI": str(item.get("ID_PGI", "")),
                     "sp_id": item.get("ID"), # ID de compatibilidade (linha)
+                    "DT_EMISSAO": str(item.get("DT_EMISSAO", "")),
                     "tipo": str(item.get("tipo", "Novo")),
                     "Comprador": format_buyer_name(item.get("Comprador", "")),
                     "grupoinsumo": str(item.get("grupoinsumo", "")),
+                    "grupointerno": str(item.get("grupointerno", "")),
                     "cotacao": str(item.get("cotacao", item.get("Title", ""))),
                     "due_dilligence": str(item.get("due_dilligence", "aguardando")),
                     "equalizacao": str(item.get("equalizacao", "aguardando")),
@@ -734,8 +739,8 @@ else:
         # Faz o parsing seguro das colunas do SharePoint (que chegam como texto)
         df_calc = df_current.copy()
         if not df_calc.empty:
-            df_calc["valor_fechado_num"] = df_calc["valor_fechado"].astype(float)
-            df_calc["savings_num"] = df_calc["savings"].astype(float)
+            df_calc["valor_fechado_num"] = df_calc["valor_fechado"].apply(parse_float_safe)
+            df_calc["savings_num"] = df_calc["savings"].apply(parse_float_safe)
             
             total_fechado_all = df_calc["valor_fechado_num"].sum()
             total_savings_all = df_calc["savings_num"].sum()
@@ -882,8 +887,8 @@ else:
                 table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                 
                 # Valores formatados de moeda
-                val_s = f"R$ {float(row['savings']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                val_f = f"R$ {float(row['valor_fechado']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                val_s = f"R$ {parse_float_safe(row['savings']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                val_f = f"R$ {parse_float_safe(row['valor_fechado']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
                 table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['tipo']}</td>"
@@ -1048,9 +1053,11 @@ else:
                             default_grupo_idx = lista_grupo_insumo_dynamic.index(item["grupoinsumo"])
                         edit_grupo = st.selectbox("Grupo de Insumo", lista_grupo_insumo_dynamic, index=default_grupo_idx)
                         
+                        edit_dt_emissao = st.text_input("Data Emissão (DT_EMISSAO)", value=str(item.get("DT_EMISSAO", "")))
+                        edit_grupointerno = st.text_input("Grupo Interno", value=str(item.get("grupointerno", "")))
                         edit_cotacao = st.text_input("Escopo de Cotação", value=item["cotacao"])
-                        edit_valor = st.number_input("Valor Fechado (R$)", value=float(item["valor_fechado"]), step=100.0, format="%.2f")
-                        edit_savings = st.number_input("Savings (R$)", value=float(item["savings"]), step=100.0, format="%.2f")
+                        edit_valor = st.number_input("Valor Fechado (R$)", value=parse_float_safe(item["valor_fechado"]), step=100.0, format="%.2f")
+                        edit_savings = st.number_input("Savings (R$)", value=parse_float_safe(item["savings"]), step=100.0, format="%.2f")
                         
                     with col_e2:
                         st.markdown("<strong style='color:#00205B;'>Validação & Compliance</strong>", unsafe_allow_html=True)
@@ -1092,9 +1099,11 @@ else:
                             st.stop()
                             
                         updated_fields = {
+                            "DT_EMISSAO": str(edit_dt_emissao),
                             "tipo": str(edit_tipo),
                             "Comprador": str(edit_comprador),
                             "grupoinsumo": str(edit_grupo),
+                            "grupointerno": str(edit_grupointerno),
                             "cotacao": str(edit_cotacao).upper(),
                             "due_dilligence": str(edit_due),
                             "equalizacao": str(edit_eq),

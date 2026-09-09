@@ -8,28 +8,14 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from sharepoint_auth_v6 import SharePointOAuthClient, SharePointMSALClient
+    from google_sheets_auth_v1 import GoogleSheetsClient
 except ImportError:
-    try:
-        from sharepoint_auth_v5 import SharePointOAuthClient, SharePointMSALClient
-    except ImportError:
-        try:
-            from sharepoint_auth_v3 import SharePointOAuthClient, SharePointMSALClient
-        except ImportError:
-            try:
-                from sharepoint_auth_v2 import SharePointOAuthClient
-                SharePointMSALClient = None
-            except ImportError:
-                try:
-                    from sharepoint_auth import SharePointOAuthClient
-                    SharePointMSALClient = None
-                except ImportError:
-                    SharePointOAuthClient = None
-                    SharePointMSALClient = None
+    GoogleSheetsClient = None
+
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v11",
+    page_title="PGI - Gestão de Cotações v14 (Google Sheets)",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -319,22 +305,16 @@ LISTA_FALLBACK_GRUPO_INSUMO = [
 LISTA_TIPOS = ["Novo", "Aditivo"]
 
 # --- CONFIGURAÇÕES DE INTEGRAÇÃO (SALVAS EM SESSION STATE) ---
-if "sp_auth_type" not in st.session_state:
-    st.session_state.sp_auth_type = "MSAL (Device Flow)" # "OAuth2 (App-Only)" ou "MSAL (Device Flow)"
-if "sp_access_token" not in st.session_state:
-    st.session_state.sp_access_token = None
-if "device_flow" not in st.session_state:
-    st.session_state.device_flow = None
-if "sp_tenant_id" not in st.session_state:
-    st.session_state.sp_tenant_id = ""
-if "sp_client_id" not in st.session_state:
-    st.session_state.sp_client_id = ""
-if "sp_client_secret" not in st.session_state:
-    st.session_state.sp_client_secret = ""
-if "sp_connected" not in st.session_state:
-    st.session_state.sp_connected = False
+if "gs_auth_type" not in st.session_state:
+    st.session_state.gs_auth_type = "Pública (Somente Leitura via URL)" # "Pública (Somente Leitura via URL)" ou "Privada (Leitura e Escrita via Service Account JSON)"
+if "gs_spreadsheet_url" not in st.session_state:
+    st.session_state.gs_spreadsheet_url = ""
+if "gs_credentials_json" not in st.session_state:
+    st.session_state.gs_credentials_json = ""
+if "gs_connected" not in st.session_state:
+    st.session_state.gs_connected = False
 if "db_mode" not in st.session_state:
-    st.session_state.db_mode = "Simulado"  # Modos: 'Simulado' ou 'SharePoint (Live)'
+    st.session_state.db_mode = "Simulado"  # Modos: 'Simulado' ou 'Google Sheets (Live)'
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Dashboard Geral"
 if "selected_pgi_to_edit" not in st.session_state:
@@ -507,47 +487,30 @@ if "db_data" not in st.session_state:
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
 # Instancia o cliente SharePoint conforme a conexão ativa (MSAL ou OAuth2)
-sp_client = None
-if st.session_state.sp_connected:
-    if st.session_state.sp_auth_type == "MSAL (Device Flow)" and SharePointMSALClient:
-        sp_client = SharePointMSALClient(
-            tenant_id=st.session_state.sp_tenant_id,
-            client_id=st.session_state.sp_client_id
+# --- INSTANCIAÇÃO DO CLIENTE GOOGLE SHEETS ---
+gs_client = None
+if st.session_state.gs_connected and GoogleSheetsClient:
+    try:
+        gs_client = GoogleSheetsClient(
+            spreadsheet_url=st.session_state.gs_spreadsheet_url,
+            credentials_json=st.session_state.gs_credentials_json if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" else None
         )
-        sp_client.access_token = st.session_state.sp_access_token
-    elif st.session_state.sp_auth_type == "OAuth2 (App-Only)" and SharePointOAuthClient:
-        sp_client = SharePointOAuthClient(
-            tenant_id=st.session_state.sp_tenant_id,
-            client_id=st.session_state.sp_client_id,
-            client_secret=st.session_state.sp_client_secret
-        )
+        gs_client.connect()
+    except Exception as e:
+        st.sidebar.error(f"❌ Erro ao inicializar o Google Sheets: {str(e)}")
+        st.session_state.gs_connected = False
 
 # --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO ---
 def carregar_grupos_insumo():
     """
-    Busca os nomes dos grupos de insumo direto do SharePoint (dSUPRI_GruposInsumo / NomeGrupo)
+    Busca os nomes dos grupos de insumo direto do Google Sheets (aba dSUPRI_GruposInsumo / NomeGrupo)
     se conectado em modo Live. Caso contrário, retorna os 50 itens fornecidos pelo usuário.
     """
-    if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
+    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
         try:
-            if st.session_state.sp_auth_type == "MSAL (Device Flow)" and SharePointMSALClient:
-                client_projetos = SharePointMSALClient(
-                    tenant_id=st.session_state.sp_tenant_id,
-                    client_id=st.session_state.sp_client_id,
-                    site_url="https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS"
-                )
-                client_projetos.access_token = st.session_state.sp_access_token
-            else:
-                client_projetos = SharePointOAuthClient(
-                    tenant_id=st.session_state.sp_tenant_id,
-                    client_id=st.session_state.sp_client_id,
-                    client_secret=st.session_state.sp_client_secret,
-                    site_url="https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS"
-                )
-            items = client_projetos.get_list_items(list_name="dSUPRI_GruposInsumo")
+            items = gs_client.get_list_items(list_name="dSUPRI_GruposInsumo")
             grupos = []
             for item in items:
-                # O SharePoint armazena o valor do grupo na coluna NomeGrupo (ou Title como fallback)
                 grupo_name = item.get("NomeGrupo", item.get("Title", ""))
                 if grupo_name:
                     grupos.append(str(grupo_name).strip().upper())
@@ -555,20 +518,20 @@ def carregar_grupos_insumo():
             if grupos:
                 return grupos
         except Exception as e:
-            st.sidebar.warning(f"⚠️ Falha ao ler dSUPRI_GruposInsumo: {str(e)}")
+            st.sidebar.warning(f"⚠️ Falha ao ler dSUPRI_GruposInsumo no Google Sheets: {str(e)}")
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
 # --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS ---
 def carregar_dados():
-    if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
+    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
         try:
-            items = sp_client.get_list_items()
+            items = gs_client.get_list_items(list_name="PGI_GestaoCotacoes")
             dados_mapeados = []
             for item in items:
                 dados_mapeados.append({
                     "ID_PGI": str(item.get("ID_PGI", "")),
-                    "sp_id": item.get("ID"),
+                    "sp_id": item.get("ID"), # ID de compatibilidade (linha)
                     "tipo": str(item.get("tipo", "Novo")),
                     "Comprador": format_buyer_name(item.get("Comprador", "")),
                     "grupoinsumo": str(item.get("grupoinsumo", "")),
@@ -592,7 +555,7 @@ def carregar_dados():
                 })
             return dados_mapeados
         except Exception as e:
-            st.sidebar.error(f"⚠️ Erro ao ler dados do SharePoint: {str(e)}")
+            st.sidebar.error(f"⚠️ Erro ao ler dados do Google Sheets: {str(e)}")
             st.sidebar.warning("🔄 Redirecionando automaticamente para o modo de simulação.")
             st.session_state.db_mode = "Simulado"
             return st.session_state.db_data
@@ -601,19 +564,19 @@ def carregar_dados():
 
 # --- FUNÇÃO PARA EXCLUIR REGISTRO ---
 def excluir_registro(pgi_id):
-    if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
+    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
         try:
-            items = sp_client.get_list_items()
+            items = gs_client.get_list_items(list_name="PGI_GestaoCotacoes")
             target_item = next((item for item in items if str(item.get("ID_PGI", "")) == str(pgi_id)), None)
             if target_item and target_item.get("ID"):
                 sp_id = target_item.get("ID")
-                sp_client.delete_list_item(sp_id)
+                gs_client.delete_list_item(sp_id, list_name="PGI_GestaoCotacoes")
                 return True
             else:
-                st.error("ID interno do SharePoint não localizado para este PGI.")
+                st.error("Linha da planilha não localizada para este PGI.")
                 return False
         except Exception as e:
-            st.error(f"❌ Erro ao excluir do SharePoint: {str(e)}")
+            st.error(f"❌ Erro ao excluir do Google Sheets: {str(e)}")
             return False
     else:
         st.session_state.db_data = [item for item in st.session_state.db_data if str(item["ID_PGI"]) != str(pgi_id)]
@@ -699,12 +662,12 @@ else:
         st.write("---")
         st.subheader("🗄️ Origem dos Dados")
         
-        if st.session_state.sp_connected:
-            options_mode = ["Simulado", "SharePoint (Live)"]
+        if st.session_state.gs_connected:
+            options_mode = ["Simulado", "Google Sheets (Live)"]
             selected_mode = st.radio(
                 "Alternar Base de Dados",
                 options_mode,
-                index=options_mode.index(st.session_state.db_mode)
+                index=options_mode.index(st.session_state.db_mode) if st.session_state.db_mode in options_mode else 0
             )
             if selected_mode != st.session_state.db_mode:
                 st.session_state.db_mode = selected_mode
@@ -712,7 +675,7 @@ else:
         else:
             render_html("""
                 <div style="background-color: rgba(255,111,0,0.15); border: 1px solid #FF6F00; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
-                    ⚠️ <strong>SharePoint Desconectado.</strong> Executando modo simulado.
+                    ⚠️ <strong>Google Sheets Desconectado.</strong> Executando modo simulado.
                 </div>
             """)
             st.session_state.db_mode = "Simulado"
@@ -720,8 +683,8 @@ else:
         st.write("---")
         menu_option_radio = st.radio(
             "Navegação",
-            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração SharePoint"],
-            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração SharePoint"].index(st.session_state.menu_option)
+            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"],
+            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"].index(st.session_state.menu_option) if st.session_state.menu_option in ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Google Sheets"] else 0
         )
         if menu_option_radio != st.session_state.menu_option:
             st.session_state.menu_option = menu_option_radio
@@ -1004,10 +967,9 @@ else:
                         "valor_fechado": "0.00"
                     }
                     
-                    if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
+                    if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
                         try:
                             sp_payload = {
-                                "Title": f"PROCESSO PGI {int(new_id)}",
                                 "ID_PGI": str(int(new_id)),
                                 "tipo": str(new_tipo),
                                 "Comprador": str(new_comprador),
@@ -1030,10 +992,10 @@ else:
                                 "aud_pasta": "aguardando",
                                 "valor_fechado": "0.00"
                             }
-                            sp_client.insert_list_item(sp_payload)
-                            st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no SharePoint.")
+                            gs_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
+                            st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Google Sheets.")
                         except Exception as e:
-                            st.error(f"❌ Erro ao gravar no SharePoint: {str(e)}")
+                            st.error(f"❌ Erro ao gravar no Google Sheets: {str(e)}")
                     else:
                         st.session_state.db_data.append(new_item)
                         st.success(f"✔️ Sucesso! Processo {new_id} registrado localmente (Base Simulada).")
@@ -1147,19 +1109,13 @@ else:
                             "aud_pasta": str(edit_aud),
                             "valor_fechado": f"{edit_valor:.2f}"                        }
                         
-                        if st.session_state.db_mode == "SharePoint (Live)" and sp_client:
+                        if st.session_state.db_mode == "Google Sheets (Live)" and gs_client:
                             try:
-                                # O SharePoint necessita do ID interno da linha para atualizar
-                                sp_items_raw = sp_client.get_list_items()
-                                matched_item = next((x for x in sp_items_raw if str(x.get("ID_PGI", "")) == str(selected_id)), None)
-                                if matched_item and matched_item.get("ID"):
-                                    sp_id = matched_item.get("ID")
-                                    sp_client.update_list_item(sp_id, updated_fields)
-                                    st.success("✔️ Registro atualizado com sucesso DIRETAMENTE no SharePoint!")
-                                else:
-                                    st.error("❌ Não foi possível encontrar o ID do SharePoint para este ID PGI.")
+                                updated_fields["ID_PGI"] = selected_id
+                                gs_client.update_list_item(None, updated_fields, list_name="PGI_GestaoCotacoes")
+                                st.success("✔️ Registro updated_fields atualizado com sucesso DIRETAMENTE no Google Sheets!")
                             except Exception as e:
-                                st.error(f"❌ Erro ao atualizar no SharePoint: {str(e)}")
+                                st.error(f"❌ Erro ao atualizar no Google Sheets: {str(e)}")
                         else:
                             updated_fields["ID_PGI"] = selected_id
                             sim_idx = next(i for i, sim_item in enumerate(st.session_state.db_data) if str(sim_item["ID_PGI"]) == str(selected_id))
@@ -1170,189 +1126,75 @@ else:
                         st.rerun()
 
     # PAGE 4: DETALHES DE INTEGRAÇÃO DO SHAREPOINT E OAUTH2
-    elif st.session_state.menu_option == "Integração SharePoint":
-        st.markdown("<h3 class='styled-table-title'>🔑 Painel de Integração Ativa via Microsoft Entra ID</h3>", unsafe_allow_html=True)
+    elif st.session_state.menu_option == "Integração Google Sheets":
+        st.markdown("<h3 class='styled-table-title'>🔑 Painel de Integração Ativa via Google Sheets</h3>", unsafe_allow_html=True)
         
         # Seleção de tipo de login
         auth_type_sel = st.radio(
-            "Selecione o Método de Autenticação",
-            ["MSAL (Device Code Flow - Sem necessidade de TI / Recomendado)", "OAuth2 (App-Only - Requer aprovação da TI e Client Secret)"],
-            index=0 if st.session_state.get("sp_auth_type", "MSAL (Device Flow)") == "MSAL (Device Flow)" else 1
+            "Selecione o Método de Integração",
+            ["Pública (Somente Leitura via URL)", "Privada (Leitura e Escrita via Service Account JSON)"],
+            index=0 if st.session_state.get("gs_auth_type", "Pública (Somente Leitura via URL)") == "Pública (Somente Leitura via URL)" else 1
         )
         
-        # Atualiza tipo no session_state
-        new_auth_type = "MSAL (Device Flow)" if "Device Code Flow" in auth_type_sel else "OAuth2 (App-Only)"
-        if new_auth_type != st.session_state.get("sp_auth_type"):
-            st.session_state.sp_auth_type = new_auth_type
+        if auth_type_sel != st.session_state.get("gs_auth_type"):
+            st.session_state.gs_auth_type = auth_type_sel
             st.rerun()
             
-        if st.session_state.sp_auth_type == "MSAL (Device Flow)":
-            st.info("💡 **Como funciona:** Este método utiliza o seu próprio login corporativo da A.Yoshii. O aplicativo rodará em seu nome (Delegado), herdando suas permissões para ler/escrever nas listas que você já possui acesso. **Nenhuma aprovação de TI é necessária!**")
+        with st.form("google_sheets_config_form"):
+            st.markdown("<strong style='color:#00205B;'>Configurações da Planilha do Google Sheets</strong>", unsafe_allow_html=True)
+            cfg_url = st.text_input("URL da Planilha do Google Sheets (Link de compartilhamento)", value=st.session_state.gs_spreadsheet_url, placeholder="Ex: https://docs.google.com/spreadsheets/d/...")
             
-            st.markdown("<strong style='color:#00205B;'>Selecione o Aplicativo Oficial da Microsoft (Evita erro AADSTS65002)</strong>", unsafe_allow_html=True)
-            perfil_app_sel = st.selectbox(
-                "Perfil do Aplicativo Microsoft",
-                [
-                    "OneDrive Sync Engine (Altamente Recomendado - Pré-aprovado por padrão)",
-                    "Microsoft Office (Nativo - Pré-aprovado por padrão)",
-                    "SharePoint Online Management Shell (Powershell)",
-                    "Outro (Digitar ID personalizado)"
-                ],
-                key="perfil_app_sel_widget"
-            )
-            
-            client_id_map = {
-                "OneDrive Sync Engine (Altamente Recomendado - Pré-aprovado por padrão)": "ab9b8c07-8f02-4f72-87fa-80105867a763",
-                "Microsoft Office (Nativo - Pré-aprovado por padrão)": "d3590ed6-52b3-4102-aeff-aad2292ab01c",
-                "SharePoint Online Management Shell (Powershell)": "9bc3ab49-b65d-410a-85ad-de819febfddc",
-                "Outro (Digitar ID personalizado)": ""
-            }
-            
-            selected_client_id = client_id_map[perfil_app_sel]
-            
-            col_in1, col_in2 = st.columns(2)
-            with col_in1:
-                cfg_tenant = st.text_input("Tenant ID (ID do Diretório Microsoft 365)", value=st.session_state.sp_tenant_id if st.session_state.sp_tenant_id else "d67a60dc-2147-4e89-ae8a-3a809823e528", placeholder="Ex: a2a3b4c5-...")
+            cfg_json = ""
+            if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)":
+                st.info("💡 **Dica de Segurança:** Para gravar e editar dados na planilha, crie uma Service Account gratuita no console de desenvolvedor do Google Cloud, baixe a chave em formato JSON e cole seu conteúdo abaixo. Não se esqueça de compartilhar a planilha do Google Sheets com o e-mail da sua Service Account!")
+                cfg_json = st.text_area("JSON de Credenciais da Service Account", value=st.session_state.gs_credentials_json, height=180, placeholder='{"type": "service_account", "project_id": "..."}')
                 
-                # Se for "Outro", permite digitar. Caso contrário, preenche automaticamente e desabilita para evitar erros do usuário
-                if perfil_app_sel == "Outro (Digitar ID personalizado)":
-                    cfg_client = st.text_input("Client ID (ID do Aplicativo)", value=st.session_state.sp_client_id, placeholder="Ex: e6f7g8h9-...")
+            test_connection = st.form_submit_button("⚡ Validar e Salvar Conexão")
+            
+            if test_connection:
+                if not cfg_url:
+                    st.error("❌ A URL da planilha é obrigatória.")
+                elif st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" and not cfg_json:
+                    st.error("❌ O JSON de credenciais é obrigatório para conexões privadas de escrita.")
                 else:
-                    cfg_client = st.text_input("Client ID (Preenchido Automaticamente)", value=selected_client_id, disabled=True)
-                    
-            with col_in2:
-                st.markdown("""<div style='background-color:#F4F6F9; padding: 12px; border-radius: 4px; font-size:12px; border-left: 3px solid #00205B;'>
-                    <strong>Por que o erro AADSTS65002 acontece?</strong><br>
-                    O Azure AD exige que o aplicativo seja pré-autorizado para acessar o SharePoint. Se a TI desativar o aplicativo PowerShell oficial, nós podemos usar o <strong>OneDrive Sync Engine</strong> ou o <strong>Microsoft Office</strong>. Ambos são aplicativos originais pré-aprovados pela Microsoft na sua empresa (caso contrário, nenhum funcionário conseguiria salvar arquivos no OneDrive ou ler anexos do Office).
-                </div>""", unsafe_allow_html=True)
-                
-            # Fluxo de login MSAL
-            if not st.session_state.sp_connected:
-                if st.session_state.device_flow is None:
-                    if st.button("🔑 Iniciar Login via Código de Dispositivo", use_container_width=True):
-                        if SharePointMSALClient is None:
-                            st.error("❌ **A biblioteca 'msal' não está instalada no servidor do Streamlit!** Adicione `msal>=1.35.0` ao arquivo `requirements.txt` no seu GitHub, salve e aguarde o Streamlit reiniciar antes de tentar novamente.")
-                        elif not cfg_tenant or not cfg_client:
-                            st.error("❌ Os campos Tenant ID e Client ID são obrigatórios.")
-                        else:
-                            try:
-                                temp_client = SharePointMSALClient(tenant_id=cfg_tenant, client_id=cfg_client)
-                                flow = temp_client.initiate_device_flow()
-                                st.session_state.device_flow = flow
-                                st.session_state.sp_tenant_id = cfg_tenant
-                                st.session_state.sp_client_id = cfg_client
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Erro ao iniciar fluxo: {str(e)}")
-                else:
-                    flow = st.session_state.device_flow
-                    st.markdown("---")
-                    render_html(f"""
-                    <div style="background-color: #FFF3CD; border-left: 5px solid #FFC107; padding: 15px; border-radius: 4px; color: #856404;">
-                        <h4 style="margin: 0 0 10px 0; color: #856404;">🔒 Autenticação Corporativa Requerida</h4>
-                        <p style="margin: 0 0 10px 0; font-size: 13px;">Siga os passos abaixo para conectar o app à sua conta do SharePoint:</p>
-                        <ol style="margin: 0; padding-left: 20px; font-size: 13px;">
-                            <li>Acesse o link oficial da Microsoft: <a href="{flow['verification_uri']}" target="_blank" style="font-weight:bold; color:#856404; text-decoration: underline;">{flow['verification_uri']}</a></li>
-                            <li>Digite o código de verificação de 9 dígitos abaixo:</li>
-                        </ol>
-                        <div style="text-align: center; margin: 15px 0;">
-                            <span style="background-color: #FFFFFF; border: 2px solid #FFC107; font-size: 24px; font-weight: 800; padding: 10px 20px; border-radius: 8px; letter-spacing: 2px; user-select: all; color: #00205B;">
-                                {flow['user_code']}
-                            </span>
-                        </div>
-                        <p style="margin: 0; font-size: 11px; opacity: 0.8;">O link abrirá uma nova aba onde você fará o login normal do Grupo A.Yoshii. Após concluir o login lá, clique no botão de confirmação abaixo.</p>
-                    </div>
-                    """)
-                    
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        if st.button("⚡ Confirmar e Concluir Autenticação", use_container_width=True):
-                            with st.spinner("Validando autenticação e gerando token..."):
-                                try:
-                                    temp_client = SharePointMSALClient(tenant_id=st.session_state.sp_tenant_id, client_id=st.session_state.sp_client_id)
-                                    token = temp_client.acquire_token_by_device_flow(flow)
-                                    st.session_state.sp_access_token = token
-                                    st.session_state.sp_connected = True
-                                    st.session_state.device_flow = None
-                                    st.success("✔️ Conectado com sucesso via login de usuário!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Falha de validação: {str(e)}")
-                    with col_b2:
-                        if st.button("❌ Cancelar Login", use_container_width=True):
-                            st.session_state.device_flow = None
+                    with st.spinner("Conectando e validando acesso ao Google Sheets..."):
+                        try:
+                            temp_client = GoogleSheetsClient(
+                                spreadsheet_url=cfg_url,
+                                credentials_json=cfg_json if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)" else None
+                            )
+                            temp_client.connect()
+                            
+                            st.session_state.gs_spreadsheet_url = cfg_url
+                            if st.session_state.gs_auth_type == "Privada (Leitura e Escrita via Service Account JSON)":
+                                st.session_state.gs_credentials_json = cfg_json
+                                
+                            st.session_state.gs_connected = True
+                            st.session_state.db_mode = "Google Sheets (Live)"
+                            
+                            st.success("✔️ Conexão estabelecida com sucesso! O modo em tempo real foi ativado.")
                             st.rerun()
-            else:
-                render_html(f"""
-                <div class="success-card">
-                    <h4>✅ Conectado com Sucesso via MSAL (Login de Usuário)!</h4>
-                    <p><strong>Tenant ID:</strong> {st.session_state.sp_tenant_id}</p>
-                    <p><strong>Client ID:</strong> {st.session_state.sp_client_id}</p>
-                    <p>Modo de produção em tempo real (SharePoint Live) está ativo e rodando com as suas credenciais.</p>
-                </div>
-                """)
-                if st.button("🔌 Desconectar SharePoint", use_container_width=True):
-                    st.session_state.sp_connected = False
-                    st.session_state.sp_access_token = None
-                    st.session_state.db_mode = "Simulado"
-                    st.rerun()
-                    
-        else:
-            st.info("🔑 **Como funciona:** Este método registra o aplicativo diretamente no Azure Active Directory e exige um segredo corporativo (*Client Secret*). Exige privilégios de administrador do Azure AD (TI) para conceder o consentimento das permissões do SharePoint.")
-            
-            with st.form("oauth2_config_form"):
-                st.markdown("<strong style='color:#00205B;'>Configurações de Identidade App-Only</strong>", unsafe_allow_html=True)
-                cfg_tenant = st.text_input("Tenant ID (ID do Diretório)", value=st.session_state.sp_tenant_id, placeholder="Ex: a2a3b4c5-...")
-                cfg_client = st.text_input("Client ID (ID do Aplicativo)", value=st.session_state.sp_client_id, placeholder="Ex: e6f7g8h9-...")
-                cfg_secret = st.text_input("Client Secret (Segredo do Cliente)", value=st.session_state.sp_client_secret, placeholder="Digite o segredo corporativo...", type="password")
+                        except Exception as e:
+                            st.session_state.gs_connected = False
+                            st.session_state.db_mode = "Simulado"
+                            st.error(f"❌ Falha de Conexão: {str(e)}")
+                            
+        if st.session_state.gs_connected:
+            if st.button("🔌 Desconectar Google Sheets", use_container_width=True):
+                st.session_state.gs_connected = False
+                st.session_state.db_mode = "Simulado"
+                st.rerun()
                 
-                test_connection = st.form_submit_button("⚡ Validar Autenticação OAuth2")
-                
-                if test_connection:
-                    if not cfg_tenant or not cfg_client or not cfg_secret:
-                        st.error("❌ Todos os campos de credenciais do OAuth2 são obrigatórios.")
-                    else:
-                        with st.spinner("Autenticando junto ao Microsoft Azure AD..."):
-                            try:
-                                temp_client = SharePointOAuthClient(
-                                    tenant_id=cfg_tenant,
-                                    client_id=cfg_client,
-                                    client_secret=cfg_secret
-                                )
-                                token = temp_client.acquire_token()
-                                
-                                st.session_state.sp_tenant_id = cfg_tenant
-                                st.session_state.sp_client_id = cfg_client
-                                st.session_state.sp_client_secret = cfg_secret
-                                st.session_state.sp_connected = True
-                                st.session_state.sp_access_token = token
-                                
-                                render_html(f"""
-                                <div class="success-card">
-                                    <h4>✅ Conexão OAuth2 Estabelecida com Sucesso!</h4>
-                                    <p><strong>Inquilino Autenticado:</strong> {cfg_tenant}</p>
-                                    <p>O modo de produção em tempo real (SharePoint Live) agora está <strong>LIBERADO</strong>.</p>
-                                </div>
-                                """)
-                                st.rerun()
-                            except Exception as e:
-                                st.session_state.sp_connected = False
-                                st.error(f"❌ Falha de Autenticação: {str(e)}")
-            
-            if st.session_state.sp_connected and st.session_state.sp_client_secret:
-                if st.button("🔌 Desconectar SharePoint", use_container_width=True):
-                    st.session_state.sp_connected = False
-                    st.session_state.sp_access_token = None
-                    st.session_state.db_mode = "Simulado"
-                    st.rerun()
-
         st.write("")
         st.markdown("<h3 class='styled-table-title'>📐 Arquitetura de Integração e Ecossistema</h3>", unsafe_allow_html=True)
         
         render_html("""
         <div class="info-card">
-            <h4>📍 URLs das Listas Ativas no Ecossistema da A.Yoshii:</h4>
-            <p><strong>Lista de Dados (Suprimentos):</strong> <code>https://grupoayoshii.sharepoint.com/sites/DPTO_SUPRIMENTOS/Lists/PGI_GestaoCotacoes</code></p>
-            <p><strong>Lista de Grupos (Projetos):</strong> <code>https://grupoayoshii.sharepoint.com/sites/BD_DPTOPROJETOS/Lists/dSUPRI_GruposInsumo</code></p>
+            <h4>📍 Estrutura Requerida na Planilha Google Sheets:</h4>
+            <p>Sua planilha do Google Sheets deve conter exatamente <strong>duas abas/pags</strong> com as seguintes colunas na primeira linha (cabeçalhos):</p>
+            <ol>
+                <li><strong>PGI_GestaoCotacoes:</strong> <code>ID_PGI, tipo, Comprador, grupoinsumo, cotacao, due_dilligence, equalizacao, orcamento, validacao_eng, validacao_ger, validacao_sup, req_mega, contr_mega, param_fiscal, minuta, ass_digital, credenciamento, comunicar, savings, aud_pasta, valor_fechado</code></li>
+                <li><strong>dSUPRI_GruposInsumo:</strong> <code>NomeGrupo</code></li>
+            </ol>
         </div>
         """)

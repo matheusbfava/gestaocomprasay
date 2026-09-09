@@ -3,9 +3,10 @@ import pandas as pd
 
 class GoogleSheetsClient:
     """
-    Cliente de Integração para Google Sheets.
+    Cliente de Integração para Google Sheets (v2).
     Suporta leitura pública rápida (via pandas) e leitura/escrita privada 
     (via biblioteca gspread usando Service Account JSON).
+    Suporta detecção dinâmica de colunas para tabelas personalizadas.
     """
     
     def __init__(self, spreadsheet_url: str, credentials_json: str = None):
@@ -49,8 +50,12 @@ class GoogleSheetsClient:
             import gspread
             from google.oauth2.service_account import Credentials
             
-            # Carrega credenciais do JSON inserido pelo usuário
-            creds_dict = json.loads(self.credentials_json)
+            # Carrega credenciais do JSON
+            if isinstance(self.credentials_json, dict):
+                creds_dict = self.credentials_json
+            else:
+                creds_dict = json.loads(self.credentials_json)
+                
             scopes = [
                 "https://spreadsheets.google.com/feeds",
                 "https://www.googleapis.com/auth/drive"
@@ -70,7 +75,7 @@ class GoogleSheetsClient:
     def get_list_items(self, list_name: str = "PGI_GestaoCotacoes") -> list:
         """
         Busca todos os registros da aba/página especificada no Google Sheets.
-        Se conectada em modo privado, usa gspread (leitura e escrita).
+        Se conectada em modo privado, usa gspread.
         Se pública, usa pandas read_csv.
         """
         # Se autenticado com gspread (Modo Privado)
@@ -78,12 +83,11 @@ class GoogleSheetsClient:
             try:
                 worksheet = self.sheet.worksheet(list_name)
                 records = worksheet.get_all_records()
-                # Cria um ID de compatibilidade sequencial baseado na linha da planilha
                 for idx, record in enumerate(records):
-                    record["ID"] = idx + 2 # O cabeçalho é a linha 1, os dados começam na linha 2
+                    record["ID"] = idx + 2 # A linha 1 é cabeçalho, dados começam na linha 2
                 return records
             except Exception as e:
-                raise Exception(f"Erro ao ler planilha com gspread: {str(e)}")
+                raise Exception(f"Erro ao ler planilha '{list_name}' com gspread: {str(e)}")
         
         # Modo Público (Pandas)
         try:
@@ -95,11 +99,11 @@ class GoogleSheetsClient:
                 record["ID"] = idx + 2
             return records
         except Exception as e:
-            raise Exception(f"Erro ao ler planilha pública: {str(e)}")
+            raise Exception(f"Erro ao ler planilha pública '{list_name}': {str(e)}")
 
     def insert_list_item(self, item_data: dict, list_name: str = "PGI_GestaoCotacoes") -> bool:
         """
-        Insere uma nova linha de dados na planilha. Requer Modo Privado.
+        Insere uma nova linha de dados na planilha usando detecção dinâmica de cabeçalhos.
         """
         if not self.sheet:
             raise ValueError("A gravação de dados só é permitida no Modo Privado. Configure as credenciais da Service Account.")
@@ -107,14 +111,12 @@ class GoogleSheetsClient:
         try:
             worksheet = self.sheet.worksheet(list_name)
             
-            # Mapeamento estrito das colunas para gravação correta
-            columns = [
-                "ID_PGI", "tipo", "Comprador", "grupoinsumo", "cotacao", "due_dilligence", 
-                "equalizacao", "orcamento", "validacao_eng", "validacao_ger", "validacao_sup", 
-                "req_mega", "contr_mega", "param_fiscal", "minuta", "ass_digital", 
-                "credenciamento", "comunicar", "savings", "aud_pasta", "valor_fechado"
-            ]
-            row = [str(item_data.get(col, "")) for col in columns]
+            # Obtém cabeçalhos dinâmicos da linha 1
+            headers = worksheet.row_values(1)
+            if not headers:
+                headers = list(item_data.keys())
+                
+            row = [str(item_data.get(col, "")) for col in headers]
             worksheet.append_row(row)
             return True
         except Exception as e:
@@ -122,7 +124,7 @@ class GoogleSheetsClient:
 
     def update_list_item(self, item_id: int, item_data: dict, list_name: str = "PGI_GestaoCotacoes") -> bool:
         """
-        Atualiza uma linha existente na planilha com base no ID_PGI. Requer Modo Privado.
+        Atualiza uma linha existente na planilha com base no ID_PGI ou número da linha.
         """
         if not self.sheet:
             raise ValueError("A atualização de dados só é permitida no Modo Privado. Configure as credenciais da Service Account.")
@@ -131,48 +133,39 @@ class GoogleSheetsClient:
             import gspread
             worksheet = self.sheet.worksheet(list_name)
             
-            columns = [
-                "ID_PGI", "tipo", "Comprador", "grupoinsumo", "cotacao", "due_dilligence", 
-                "equalizacao", "orcamento", "validacao_eng", "validacao_ger", "validacao_sup", 
-                "req_mega", "contr_mega", "param_fiscal", "minuta", "ass_digital", 
-                "credenciamento", "comunicar", "savings", "aud_pasta", "valor_fechado"
-            ]
+            headers = worksheet.row_values(1)
+            if not headers:
+                headers = list(item_data.keys())
             
-            # Localiza a linha correta pelo ID_PGI na coluna A (Coluna 1)
+            # Localiza a coluna ID_PGI
+            id_col_idx = 1
+            if "ID_PGI" in headers:
+                id_col_idx = headers.index("ID_PGI") + 1
+                
             id_pgi = item_data.get("ID_PGI")
-            cell = worksheet.find(str(id_pgi), in_column=1)
+            cell = None
+            if id_pgi:
+                cell = worksheet.find(str(id_pgi), in_column=id_col_idx)
             
             if cell:
                 row_idx = cell.row
-                current_row = worksheet.row_values(row_idx)
-                while len(current_row) < len(columns):
-                    current_row.append("")
-                    
-                # Atualiza apenas os campos fornecidos que existem na planilha
-                for key, val in item_data.items():
-                    if key in columns:
-                        col_idx = columns.index(key)
-                        current_row[col_idx] = str(val)
-                        
-                # Atualiza a linha completa usando notação A1 (Ex: A5:U5)
-                range_str = f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(columns))}"
-                worksheet.update(range_str, [current_row])
-                return True
-            else:
-                # Se não encontrar pelo ID_PGI, tenta atualizar pela linha diretamente (item_id)
+            elif item_id:
                 row_idx = int(item_id)
-                current_row = worksheet.row_values(row_idx)
-                while len(current_row) < len(columns):
-                    current_row.append("")
+            else:
+                raise ValueError("Não foi possível determinar a linha a ser atualizada.")
+                
+            current_row = worksheet.row_values(row_idx)
+            while len(current_row) < len(headers):
+                current_row.append("")
+                
+            for key, val in item_data.items():
+                if key in headers:
+                    col_idx = headers.index(key)
+                    current_row[col_idx] = str(val)
                     
-                for key, val in item_data.items():
-                    if key in columns:
-                        col_idx = columns.index(key)
-                        current_row[col_idx] = str(val)
-                        
-                range_str = f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(columns))}"
-                worksheet.update(range_str, [current_row])
-                return True
+            range_str = f"A{row_idx}:{gspread.utils.rowcol_to_a1(row_idx, len(headers))}"
+            worksheet.update(range_str, [current_row])
+            return True
         except Exception as e:
             raise Exception(f"Erro ao atualizar linha no Google Sheets: {str(e)}")
 

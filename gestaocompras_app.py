@@ -8,10 +8,10 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from supabase_client_v1 import SupabaseClient
+    from supabase_client_v2 import SupabaseClient
 except ImportError:
     try:
-        from supabase_client_v1 import SupabaseClient
+        from supabase_client_v2 import SupabaseClient
     except ImportError:
         SupabaseClient = None
 
@@ -344,24 +344,92 @@ if "selected_pgi_to_edit" not in st.session_state:
     st.session_state.selected_pgi_to_edit = None
 if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
+if "users_data" not in st.session_state:
+    st.session_state.users_data = [
+        {
+            "username": "matheus.fava",
+            "nome": "Matheus Fava",
+            "senha": "ayoshii1050",
+            "perfil": "administrador",
+            "ativo": True
+        },
+        {
+            "username": "admin",
+            "nome": "Administrador System",
+            "senha": "1234",
+            "perfil": "administrador",
+            "ativo": True
+        }
+    ]
+if "user_perfil" not in st.session_state:
+    st.session_state.user_perfil = "comprador"
 
 # --- SESSÃO DE AUTENTICAÇÃO DO USUÁRIO NO APP (LOGIN) ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+
+# --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
+@st.cache_data(ttl=300)
+def carregar_usuarios():
+    """
+    Busca a lista de usuários e credenciais direto da tabela 'usuarios' do Supabase.
+    Caso contrário, retorna a lista simulada do session_state.
+    """
+    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+        try:
+            users = sb_client.get_list_items(list_name="usuarios")
+            if users:
+                return users
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Falha ao ler tabela de usuários no Supabase: {str(e)}")
+            
+    return st.session_state.users_data
+
 def login(username, password):
-    if username == "admin" and password == "1234":
-        st.session_state.logged_in = True
-        st.session_state.user = "Administrador"
-        st.success("Login realizado com sucesso!")
-        st.rerun()
+    username_clean = str(username).strip().lower()
+    users_list = carregar_usuarios()
+    matched_user = next((u for u in users_list if str(u.get("username", "")).strip().lower() == username_clean), None)
+    
+    if matched_user:
+        if not matched_user.get("ativo", True):
+            st.error("❌ Conta de usuário inativa. Entre em contato com o administrador do sistema.")
+            return
+        if str(matched_user.get("senha", "")) == str(password):
+            st.session_state.logged_in = True
+            st.session_state.user = matched_user.get("nome", username)
+            st.session_state.username = matched_user.get("username", username)
+            st.session_state.user_perfil = matched_user.get("perfil", "comprador")
+            st.success(f"✔️ Login realizado com sucesso! Bem-vindo, {st.session_state.user}.")
+            st.rerun()
+        else:
+            st.error("❌ Senha incorreta.")
     else:
-        st.error("Usuário ou senha incorretos.")
+        # Fallback direto para o administrador principal solicitado
+        if username_clean == "matheus.fava" and password == "ayoshii1050":
+            st.session_state.logged_in = True
+            st.session_state.user = "Matheus Fava"
+            st.session_state.username = "matheus.fava"
+            st.session_state.user_perfil = "administrador"
+            st.success("✔️ Login realizado com sucesso! Bem-vindo, Matheus Fava.")
+            st.rerun()
+        elif username_clean == "admin" and password == "1234":
+            st.session_state.logged_in = True
+            st.session_state.user = "Administrador System"
+            st.session_state.username = "admin"
+            st.session_state.user_perfil = "administrador"
+            st.success("✔️ Login de demonstração ativado.")
+            st.rerun()
+        else:
+            st.error("❌ Usuário não localizado ou senha incorreta.")
 
 def logout():
     st.session_state.logged_in = False
     st.session_state.pop("user", None)
+    st.session_state.pop("username", None)
+    st.session_state.pop("user_perfil", None)
     st.rerun()
+
 
 # --- MODELAGEM DE DADOS DO SHAREPOINT (SIMULADA COMO BASELINE COM NOVAS COLUNAS) ---
 if "db_data" not in st.session_state:
@@ -661,8 +729,8 @@ if not st.session_state.logged_in:
             <div style="background-color: #F4F6F9; border-top: 3px solid #FF6F00; padding: 10px; border-radius: 4px; margin-top: 10px; text-align: center;">
                 <p style="margin: 0; font-size: 10px; color: #1E1E1E;">
                     💡 <strong>Credenciais de Demonstração:</strong><br>
-                    Usuário: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">admin</code> | 
-                    Senha: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">1234</code>
+                    Usuário Administrador: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">matheus.fava</code> | 
+                    Senha: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">ayoshii1050</code>
                 </p>
             </div>
         """)
@@ -684,7 +752,9 @@ else:
             </div>
         """)
         
-        st.markdown(f"👤 **Comprador Ativo:** `{st.session_state.user}`")
+        st.markdown(f"👤 **Usuário Ativo:** `{st.session_state.user}`")
+        perfil_label = "👑 Administrador" if st.session_state.get("user_perfil") == "administrador" else "💼 Comprador"
+        st.markdown(f"🛡️ **Perfil:** `{perfil_label}`")
         
         st.write("---")
         st.subheader("🗄️ Origem dos Dados")
@@ -708,10 +778,17 @@ else:
             st.session_state.db_mode = "Simulado"
             
         st.write("---")
+        # Permissões dinâmicas de menu baseadas no perfil do usuário
+        is_admin = st.session_state.get("user_perfil") == "administrador"
+        nav_options = ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros"]
+        if is_admin:
+            nav_options.append("Gestão de Usuários (Admin)")
+        nav_options.append("Integração Supabase")
+
         menu_option_radio = st.radio(
             "Navegação",
-            ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"],
-            index=["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"].index(st.session_state.menu_option) if st.session_state.menu_option in ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros", "Integração Supabase"] else 0
+            nav_options,
+            index=nav_options.index(st.session_state.menu_option) if st.session_state.menu_option in nav_options else 0
         )
         if menu_option_radio != st.session_state.menu_option:
             st.session_state.menu_option = menu_option_radio
@@ -1164,6 +1241,169 @@ else:
                             
                         st.session_state.menu_option = "Dashboard Geral"
                         st.rerun()
+
+
+    # PAGE 5: GESTÃO DE USUÁRIOS E ACESSOS (EXCLUSIVO PARA ADMINISTRADORES)
+    elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
+        is_admin = st.session_state.get("user_perfil") == "administrador"
+        if not is_admin:
+            st.error("🔒 **Acesso Negado:** Apenas usuários com perfil de **Administrador** possuem privilégio para acessar esta página.")
+            st.stop()
+
+        st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários</h3>", unsafe_allow_html=True)
+        
+        render_html("""
+            <div class="info-card">
+                <strong>👑 Painel Administrativo de Usuários:</strong> Cadastre novos compradores ou administradores, gerencie senhas e altere os status de acesso. As alterações realizadas aqui refletem instantaneamente na autenticação do aplicativo.
+            </div>
+        """)
+
+        # Carrega lista completa de usuários ativas
+        lista_usuarios_atual = carregar_usuarios()
+        df_users = pd.DataFrame(lista_usuarios_atual)
+
+        # Exibição da Tabela de Usuários
+        if not df_users.empty:
+            st.markdown("<strong style='color:#00205B;'>Lista de Usuários Cadastrados no Sistema</strong>", unsafe_allow_html=True)
+            
+            headers_users = ["Username / Login", "Nome Completo", "Perfil de Acesso", "Status da Conta"]
+            u_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 20px;'>"
+            u_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 12px;'>"
+            u_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
+            u_html += "<tr>"
+            for hu in headers_users:
+                u_html += f"<th style='padding: 10px; text-align: left; font-weight: 700;'>{hu}</th>"
+            u_html += "</tr></thead><tbody>"
+
+            for _, row_u in df_users.iterrows():
+                u_username = str(row_u.get("username", ""))
+                u_nome = str(row_u.get("nome", ""))
+                u_perfil = str(row_u.get("perfil", "comprador")).title()
+                u_ativo = row_u.get("ativo", True)
+                
+                status_tag = '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745;">ATIVO</span>' if u_ativo else '<span style="background-color:#F8D7DA; color:#721C24; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #721C24;">INATIVO</span>'
+                perfil_tag = f'<span style="color:#FF6F00; font-weight:800;">👑 {u_perfil}</span>' if u_perfil.lower() == "administrador" else f'<span style="color:#00205B; font-weight:600;">💼 {u_perfil}</span>'
+
+                u_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
+                u_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B;'>{u_username}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{u_nome}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{perfil_tag}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{status_tag}</td>"
+                u_html += "</tr>"
+
+            u_html += "</tbody></table></div>"
+            st.markdown(u_html, unsafe_allow_html=True)
+
+        # Tabs de Gerenciamento: Cadastrar vs Editar
+        tab_cad, tab_edit = st.tabs(["➕ Cadastrar Novo Usuário", "✏️ Editar Usuário Existente"])
+
+        with tab_cad:
+            with st.form("form_novo_usuario"):
+                st.markdown("<strong style='color:#00205B;'>Formulário de Cadastro de Novo Usuário</strong>", unsafe_allow_html=True)
+                col_u1, col_u2 = st.columns(2)
+                with col_u1:
+                    new_u_username = st.text_input("Login / Username (ex: matheus.fava)", placeholder="Digite o login sem espaços...").strip().lower()
+                    new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
+                with col_u2:
+                    new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
+                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores enxergam este painel e gerenciam acessos.")
+                    new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
+
+                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário")
+
+                if submit_new_u:
+                    if not new_u_username or not new_u_nome or not new_u_senha:
+                        st.error("❌ Username, Nome Completo e Senha são campos obrigatórios.")
+                    else:
+                        existing_usernames = [str(x.get("username", "")).lower() for x in lista_usuarios_atual]
+                        if new_u_username in existing_usernames:
+                            st.error(f"❌ O username '{new_u_username}' já existe no sistema.")
+                        else:
+                            user_payload = {
+                                "username": new_u_username,
+                                "nome": new_u_nome,
+                                "senha": new_u_senha,
+                                "perfil": new_u_perfil,
+                                "ativo": new_u_ativo
+                            }
+                            
+                            if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+                                try:
+                                    sb_client.insert_list_item(user_payload, list_name="usuarios")
+                                    st.cache_data.clear()
+                                    st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado com sucesso no Supabase!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao salvar usuário no Supabase: {str(e)}")
+                            else:
+                                st.session_state.users_data.append(user_payload)
+                                st.cache_data.clear()
+                                st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado na Base Simulada!")
+                                st.rerun()
+
+        with tab_edit:
+            if not lista_usuarios_atual:
+                st.info("Nenhum usuário cadastrado para edição.")
+            else:
+                user_options = [f"{u.get('username')} - {u.get('nome')} ({u.get('perfil')})" for u in lista_usuarios_atual]
+                selected_user_str = st.selectbox("Selecione o Usuário para Editar", user_options)
+                
+                if selected_user_str:
+                    sel_username = selected_user_str.split(" - ")[0]
+                    selected_u_dict = next((u for u in lista_usuarios_atual if str(u.get("username")) == str(sel_username)), {})
+
+                    with st.form("form_editar_usuario"):
+                        render_html(f"""
+                            <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #00205B; margin-bottom: 12px; font-size: 13px;">
+                                <strong>Editando Acesso:</strong> {selected_u_dict.get('username')} ({selected_u_dict.get('nome')})
+                            </div>
+                        """)
+                        col_eu1, col_eu2 = st.columns(2)
+                        with col_eu1:
+                            edit_u_nome = st.text_input("Nome Completo", value=selected_u_dict.get("nome", ""))
+                            edit_u_senha = st.text_input("Senha de Acesso", value=selected_u_dict.get("senha", ""), type="password")
+                        with col_eu2:
+                            current_perfil = selected_u_dict.get("perfil", "comprador")
+                            edit_u_perfil = st.selectbox(
+                                "Perfil de Acesso", 
+                                ["comprador", "administrador"], 
+                                index=0 if current_perfil == "comprador" else 1
+                            )
+                            edit_u_ativo = st.checkbox("Conta Ativa", value=bool(selected_u_dict.get("ativo", True)))
+
+                        submit_edit_u = st.form_submit_button("💾 Salvar Alterações do Usuário")
+
+                        if submit_edit_u:
+                            if not edit_u_nome or not edit_u_senha:
+                                st.error("❌ Nome e Senha são campos obrigatórios.")
+                            else:
+                                updated_u_payload = {
+                                    "username": sel_username,
+                                    "nome": edit_u_nome,
+                                    "senha": edit_u_senha,
+                                    "perfil": edit_u_perfil,
+                                    "ativo": edit_u_ativo
+                                }
+
+                                if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+                                    try:
+                                        sb_client.update_list_item(
+                                            item_id=sel_username, 
+                                            item_data=updated_u_payload, 
+                                            list_name="usuarios", 
+                                            id_column="username"
+                                        )
+                                        st.cache_data.clear()
+                                        st.success(f"✔️ Dados do usuário '{sel_username}' atualizados com sucesso no Supabase!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Erro ao atualizar usuário no Supabase: {str(e)}")
+                                else:
+                                    u_idx = next(i for i, u in enumerate(st.session_state.users_data) if str(u["username"]) == str(sel_username))
+                                    st.session_state.users_data[u_idx] = updated_u_payload
+                                    st.cache_data.clear()
+                                    st.success(f"✔️ Dados do usuário '{sel_username}' atualizados na Base Simulada!")
+                                    st.rerun()
 
     # PAGE 4: PAINEL DE CONFIGURAÇÃO E TESTE DO SUPABASE
     elif st.session_state.menu_option == "Integração Supabase":

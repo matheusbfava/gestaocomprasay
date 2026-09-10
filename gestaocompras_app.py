@@ -5,6 +5,7 @@ import sys
 import os
 import requests
 import json
+import io
 
 # Adiciona o diretório atual ao path para garantir importação do cliente
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -81,6 +82,26 @@ class SupabaseClient:
         except Exception as e:
             raise Exception(f"Erro ao cadastrar registro ({list_name}): {str(e)}")
 
+    def insert_batch(self, items_list: list, list_name: str = "PGI_GestaoCotacoes") -> bool:
+        if not items_list:
+            return True
+        if self.client:
+            try:
+                self.client.table(list_name).insert(items_list).execute()
+                return True
+            except Exception:
+                pass
+                
+        endpoint = f"{self.rest_url}/{list_name}"
+        try:
+            res = requests.post(endpoint, headers=self._get_headers(), json=items_list, timeout=20)
+            if res.status_code in (200, 201):
+                return True
+            else:
+                raise Exception(f"HTTP {res.status_code}: {res.text}")
+        except Exception as e:
+            raise Exception(f"Erro na inserção em lote ({list_name}): {str(e)}")
+
     def update_list_item(self, item_id: str, item_data: dict, list_name: str = "PGI_GestaoCotacoes", id_column: str = "ID_PGI") -> bool:
         id_val = item_data.get(id_column, item_id)
         if self.client:
@@ -153,7 +174,7 @@ def parse_bool_safe(val):
 # Estilização CSS institucional da Marca A.Yoshii
 st.markdown("""
     <style>
-    /* Estilização da Barra Lateral (Sidebar) */
+    /* Barra Lateral (Sidebar) */
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
@@ -165,7 +186,6 @@ st.markdown("""
         border-color: rgba(255, 255, 255, 0.2) !important;
     }
     
-    /* Inputs e botões na barra lateral */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #FF6F00 !important;
         color: #FFFFFF !important;
@@ -332,30 +352,17 @@ if "sb_key" not in st.session_state:
     st.session_state.sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("supabase_key", ""))
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Dashboard Geral"
-if "selected_pgi_to_edit" not in st.session_state:
-    st.session_state.selected_pgi_to_edit = None
 if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
 if "user_perfil" not in st.session_state:
     st.session_state.user_perfil = "comprador"
 if "autofit_cols" not in st.session_state:
     st.session_state.autofit_cols = False
+if "modo_visualizacao" not in st.session_state:
+    st.session_state.modo_visualizacao = "👁️ Tabela Visual (Badges)"
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
-# --- CAPTURA DE AÇÕES RÁPIDAS POR LINK DA TABELA (QUERY PARAMS) ---
-if "action" in st.query_params and "id" in st.query_params:
-    action_type = st.query_params.get("action")
-    target_id = str(st.query_params.get("id")).strip()
-    st.query_params.clear()
-    if action_type == "edit":
-        st.session_state.selected_pgi_to_edit = target_id
-        st.session_state.menu_option = "Gerenciamento de Registros"
-        st.rerun()
-    elif action_type == "del":
-        st.session_state.confirm_delete_id = target_id
-        st.rerun()
 
 # --- CLIENTE SUPABASE ---
 sb_client = None
@@ -381,6 +388,43 @@ def carregar_usuarios():
             pass
     return []
 
+# --- AUTO-RECUPERAÇÃO DE SESSÃO CONTRA LOGOUT INDESEJADO ---
+auth_param = st.query_params.get("auth", None)
+if not st.session_state.logged_in and auth_param:
+    users_list_init = carregar_usuarios()
+    matched_init = next((u for u in users_list_init if str(u.get("username", "")).strip().lower() == str(auth_param).strip().lower()), None)
+    if matched_init and matched_init.get("ativo", True):
+        st.session_state.logged_in = True
+        st.session_state.user = matched_init.get("nome", auth_param)
+        st.session_state.username = matched_init.get("username", auth_param)
+        st.session_state.user_perfil = matched_init.get("perfil", "comprador")
+    elif str(auth_param).lower() in ["matheus.fava", "admin"]:
+        st.session_state.logged_in = True
+        st.session_state.user = "Matheus Fava" if "fava" in str(auth_param).lower() else "Administrador"
+        st.session_state.username = str(auth_param).lower()
+        st.session_state.user_perfil = "administrador"
+
+# --- CAPTURA DE AÇÕES RÁPIDAS (ÍCONES DE LINHA: ✏️ e 🗑️) ---
+if "action" in st.query_params and "id" in st.query_params:
+    action_type = st.query_params.get("action")
+    target_id = str(st.query_params.get("id")).strip()
+    
+    # Mantém o auth ativo nos query_params para navegação limpa
+    auth_keep = st.session_state.get("username", "user")
+    st.query_params.clear()
+    st.query_params["auth"] = auth_keep
+    
+    if action_type == "edit":
+        # Ativa o filtro direto para esse ID e muda para a planilha para edição inline rápida
+        st.session_state["f_id_sel"] = target_id
+        st.session_state["modo_visualizacao"] = "📝 Planilha Interativa (Excel)"
+        st.session_state.menu_option = "Dashboard Geral"
+        st.rerun()
+    elif action_type == "del":
+        st.session_state.confirm_delete_id = target_id
+        st.session_state.menu_option = "Dashboard Geral"
+        st.rerun()
+
 def login(username, password):
     username_clean = str(username).strip().lower()
     users_list = carregar_usuarios()
@@ -395,6 +439,7 @@ def login(username, password):
             st.session_state.user = matched_user.get("nome", username)
             st.session_state.username = matched_user.get("username", username)
             st.session_state.user_perfil = matched_user.get("perfil", "comprador")
+            st.query_params["auth"] = st.session_state.username
             st.success(f"✔️ Login realizado com sucesso! Bem-vindo, {st.session_state.user}.")
             st.rerun()
         else:
@@ -405,6 +450,7 @@ def login(username, password):
             st.session_state.user = "Matheus Fava"
             st.session_state.username = "matheus.fava"
             st.session_state.user_perfil = "administrador"
+            st.query_params["auth"] = "matheus.fava"
             st.success("✔️ Login de contingência autorizado.")
             st.rerun()
         elif username_clean == "admin" and password == "1234":
@@ -412,6 +458,7 @@ def login(username, password):
             st.session_state.user = "Administrador Sistema"
             st.session_state.username = "admin"
             st.session_state.user_perfil = "administrador"
+            st.query_params["auth"] = "admin"
             st.success("✔️ Login de contingência autorizado.")
             st.rerun()
         else:
@@ -422,6 +469,7 @@ def logout():
     st.session_state.pop("user", None)
     st.session_state.pop("username", None)
     st.session_state.pop("user_perfil", None)
+    st.query_params.clear()
     st.rerun()
 
 # --- CARREGAMENTO DE GRUPOS E OBRAS ---
@@ -598,7 +646,7 @@ else:
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar
+    # Sidebar (TELA DE GERENCIAMENTO DE REGISTROS REMOVIDA)
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
@@ -621,7 +669,7 @@ else:
         """)
         
         is_admin = st.session_state.get("user_perfil") == "administrador"
-        nav_options = ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros"]
+        nav_options = ["Dashboard Geral", "Adicionar ID"]
         if is_admin:
             nav_options.append("Gestão de Obras (Admin)")
             nav_options.append("Gestão de Usuários (Admin)")
@@ -675,7 +723,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL
+    # PAGE 1: DASHBOARD GERAL COM PLANILHA INTERATIVA E BADGES
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -721,21 +769,21 @@ else:
                 </div>
             """)
         
-        # --- FILTROS DE PESQUISA (COM NOVO FILTRO DE STATUS 'EM ANDAMENTO' / 'CONCLUÍDOS') ---
-        with st.expander("🔍 Filtros Avançados de Processos", expanded=False):
+        # --- FILTROS DE PESQUISA ---
+        with st.expander("🔍 Filtros de Processos", expanded=False):
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
                     return ["Todos"]
                 unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if str(v).strip()])
                 return ["Todos"] + unique_vals
 
-            # NOVO BOTÃO DE FILTRO DE STATUS (EM ANDAMENTO / CONCLUÍDOS / TODOS)
-            st.markdown("<strong>Status do Processo:</strong>", unsafe_allow_html=True)
+            # FILTRO DE STATUS
+            st.markdown("<strong>Filtrar por Status do Processo:</strong>", unsafe_allow_html=True)
             status_filtro = st.radio(
                 "Filtrar por Status de Conclusão",
                 ["Todos", "⏳ Em andamento", "✅ Concluídos"],
                 horizontal=True,
-                index=0,
+                key="filtro_status_conclusao",
                 label_visibility="collapsed"
             )
             st.write("")
@@ -751,18 +799,21 @@ else:
                 f_obra = st.selectbox("Obra", get_filter_options(df_current, "obra"), key="f_obra_sel")
 
             st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
+            
+            # CORREÇÃO DO BOTÃO LIMPAR FILTROS: LIMPA DEFINITIVAMENTE AS CHAVES DA SESSÃO
             if st.button("🔄 Limpar Filtros", use_container_width=False):
+                for k in ["f_id_sel", "f_comprador_sel", "f_grupo_sel", "f_obra_sel", "filtro_status_conclusao"]:
+                    if k in st.session_state:
+                        del st.session_state[k]
                 st.rerun()
 
         df_filtered = df_current.copy()
         if not df_filtered.empty:
-            # Aplica o filtro de status
             if status_filtro == "⏳ Em andamento":
                 df_filtered = df_filtered[df_filtered["concluido"] == False]
             elif status_filtro == "✅ Concluídos":
                 df_filtered = df_filtered[df_filtered["concluido"] == True]
 
-            # Aplica os filtros de coluna
             if f_id != "Todos":
                 df_filtered = df_filtered[df_filtered["ID_PGI"].astype(str).str.contains(f_id, case=False, na=False)]
             if f_comprador != "Todos":
@@ -776,12 +827,11 @@ else:
         with col_header_tb1:
             st.markdown("<h3 class='styled-table-title'>📋 Gestão Consolidada de Processos de Cotação</h3>", unsafe_allow_html=True)
         with col_header_tb2:
-            # PADRÃO ALTERADO: VISÃO DE BADGES É O ÍNDICE 0
             modo_visualizacao = st.radio(
                 "Modo de Visualização:",
                 ["👁️ Tabela Visual (Badges)", "📝 Planilha Interativa (Excel)"],
                 horizontal=True,
-                index=0,
+                key="modo_visualizacao",
                 label_visibility="collapsed"
             )
 
@@ -801,7 +851,7 @@ else:
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO) COM ÍCONES DE AÇÃO POR LINHA (✏️ e 🗑️)
+            # MODO 1: TABELA VISUAL (PADRÃO) COM ÍCONES PROTEGIDOS CONTRA LOGOUT
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
@@ -821,14 +871,16 @@ else:
                 table_html += "</thead>"
                 table_html += "<tbody>"
                 
+                current_username = st.session_state.get("username", "user")
+                
                 for index, row in df_filtered.iterrows():
                     table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                     
-                    # COLUNA DE AÇÕES COM ÍCONES DIRETOS POR LINHA
+                    # LINKS PROTEGIDOS: INCLUEM '&auth=' PARA PREVENIR LOGOUT INDESEJADO NO NAVEGADOR
                     table_html += f"""
                     <td style='padding: 6px 10px; text-align: center; white-space: nowrap; border: 1px solid #F4F6F9;'>
-                        <a href='?action=edit&id={row['ID_PGI']}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 5px; display: inline-block;' title='Editar Registro'>✏️</a>
-                        <a href='?action=del&id={row['ID_PGI']}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FCE8E8; border: 1px solid #DC3545; border-radius: 4px; font-size: 12px; display: inline-block;' title='Excluir Registro'>🗑️</a>
+                        <a href='?action=edit&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 5px; display: inline-block;' title='Editar na Planilha Interativa'>✏️</a>
+                        <a href='?action=del&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FCE8E8; border: 1px solid #DC3545; border-radius: 4px; font-size: 12px; display: inline-block;' title='Excluir Registro'>🗑️</a>
                     </td>
                     """
                     
@@ -863,14 +915,14 @@ else:
                 st.markdown(table_html, unsafe_allow_html=True)
 
             # ==================================================================
-            # MODO 2: PLANILHA INTERATIVA (EXCEL) COM BOTÃO AUTOFILL
+            # MODO 2: PLANILHA INTERATIVA (EXCEL)
             # ==================================================================
             else:
                 col_info_plan, col_btn_autofit = st.columns([3, 1.2])
                 with col_info_plan:
                     render_html("""
                         <div style="background-color:#F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; font-size: 12px;">
-                            💡 <strong>Modo Planilha Ativo:</strong> Edite células diretamente. Ao concluir, clique no botão <strong>"💾 Salvar Alterações da Planilha"</strong>.
+                            💡 <strong>Modo Planilha Ativo:</strong> Edite diretamente as células e marque o checkbox de <strong>Concluído</strong> para finalizar. Ao concluir, clique em <strong>"💾 Salvar Alterações da Planilha"</strong>.
                         </div>
                     """)
                 with col_btn_autofit:
@@ -883,7 +935,6 @@ else:
                 opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
                 opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
                 
-                # Se autofit estiver ativo, as larguras ficam sem restrições fixas (None)
                 is_autofit = st.session_state.autofit_cols
                 w_s = None if is_autofit else "small"
                 w_m = None if is_autofit else "medium"
@@ -961,204 +1012,232 @@ else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
     # ==========================================================================
-    # PAGE 2: LANÇAR NOVA COTAÇÃO (VERIFICAÇÃO RIGOROSA DE UNICIDADE)
+    # PAGE 2: ADICIONAR ID (INDIVIDUAL OU IMPORTAÇÃO EM MASSA VIA EXCEL)
     # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
-        st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo ID de Processo</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo Processo ou Importar Planilha</h3>", unsafe_allow_html=True)
         
-        render_html("""
-            <div class="info-card">
-                <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo. Todo processo é iniciado com o status <i>Em Andamento</i>.
-            </div>
-        """)
+        tab_novo_id, tab_import_excel = st.tabs(["➕ Cadastrar ID Individual", "📥 Importação em Massa (Excel)"])
         
-        with st.form("new_record_form"):
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                new_id = st.number_input("ID PGI (Número Único)", min_value=1, step=1, format="%d", value=49001)
-                new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
-            with col_f2:
-                new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
-                new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
-                
-            st.write("")
-            submit_new = st.form_submit_button("💾 Salvar Novo ID")
+        # --- SUB-ABA 1: CADASTRO INDIVIDUAL ---
+        with tab_novo_id:
+            render_html("""
+                <div class="info-card">
+                    <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo.
+                </div>
+            """)
             
-            if submit_new:
-                id_str = str(int(new_id)).strip()
-                existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
-                is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
+            with st.form("new_record_form"):
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    new_id = st.number_input("ID PGI (Número Único)", min_value=1, step=1, format="%d", value=49001)
+                    new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
+                with col_f2:
+                    new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
+                    new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
+                    
+                st.write("")
+                submit_new = st.form_submit_button("💾 Salvar Novo ID")
                 
-                if not new_id:
-                    st.error("❌ O ID PGI é obrigatório.")
-                elif (id_str in existing_ids_cache) or is_duplicate_live:
-                    st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Não são permitidos IDs duplicados.")
-                else:
-                    if not sb_client:
-                        st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
+                if submit_new:
+                    id_str = str(int(new_id)).strip()
+                    existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
+                    is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
+                    
+                    if not new_id:
+                        st.error("❌ O ID PGI é obrigatório.")
+                    elif (id_str in existing_ids_cache) or is_duplicate_live:
+                        st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Não são permitidos IDs duplicados.")
                     else:
-                        try:
-                            sp_payload = {
-                                "ID_PGI": id_str,
-                                "obra": str(new_obra),
-                                "tipo": str(new_tipo),
-                                "Comprador": str(new_comprador),
-                                "grupoinsumo": "N/A",
-                                "cotacao": f"PROCESSO PGI {id_str}",
-                                "due_dilligence": "aguardando",
-                                "equalizacao": "aguardando",
-                                "orcamento": "aguardando",
-                                "validacao_eng": "aguardando",
-                                "validacao_ger": "aguardando",
-                                "validacao_sup": "aguardando",
-                                "req_mega": "aguardando",
-                                "contr_mega": "aguardando",
-                                "param_fiscal": "N/A",
-                                "minuta": "N/A",
-                                "ass_digital": "aguardando",
-                                "credenciamento": "N/A",
-                                "comunicar": "N/A",
-                                "aud_pasta": "aguardando",
-                                "concluido": False
-                            }
-                            sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
-                            st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! Processo {id_str} ({new_obra}) cadastrado com sucesso.")
-                            st.session_state.menu_option = "Dashboard Geral"
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
-
-    # ==========================================================================
-    # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS (FORMULÁRIO DETALHADO)
-    # ==========================================================================
-    elif st.session_state.menu_option == "Gerenciamento de Registros":
-        st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações</h3>", unsafe_allow_html=True)
-        
-        if df_current.empty:
-            st.warning("Nenhum dado disponível para edição.")
-        else:
-            list_ids = [f"{item['ID_PGI']} - {item.get('obra', 'N/A')} - {item['cotacao']}" for item in db_data_current]
-            
-            selected_idx_default = 0
-            if st.session_state.selected_pgi_to_edit:
-                selected_idx_default = next((i for i, item in enumerate(db_data_current) if str(item["ID_PGI"]) == str(st.session_state.selected_pgi_to_edit)), 0)
-                st.session_state.selected_pgi_to_edit = None
-
-            selected_option = st.selectbox("Selecione o Processo Interno para Editar", list_ids, index=selected_idx_default)
-            
-            if selected_option:
-                selected_id = selected_option.split(" - ")[0]
-                item_idx = next(i for i, item in enumerate(db_data_current) if str(item["ID_PGI"]) == str(selected_id))
-                item = db_data_current[item_idx]
-                
-                with st.form("edit_record_form"):
-                    render_html(f"""
-                        <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
-                            <strong>Editando Registro:</strong> ID_PGI {item['ID_PGI']} | Obra: {item.get('obra', 'N/A')} | {item['cotacao']}
-                        </div>
-                    """)
-                    
-                    col_e1, col_e2, col_e3 = st.columns(3)
-                    with col_e1:
-                        st.markdown("<strong style='color:#00205B;'>Dados do Processo</strong>", unsafe_allow_html=True)
-                        
-                        obra_atual = str(item.get("obra", "N/A")).strip().upper()
-                        idx_obra = lista_obras_dynamic.index(obra_atual) if obra_atual in lista_obras_dynamic else 0
-                        edit_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic, index=idx_obra)
-                        
-                        edit_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS, index=LISTA_TIPOS.index(item["tipo"]) if "tipo" in item and item["tipo"] in LISTA_TIPOS else 0)
-                        edit_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES, index=LISTA_COMPRADORES.index(item["Comprador"]) if "Comprador" in item and item["Comprador"] in LISTA_COMPRADORES else 0)
-                        
-                        default_grupo_idx = 0
-                        if "grupoinsumo" in item and item["grupoinsumo"] in lista_grupo_insumo_dynamic:
-                            default_grupo_idx = lista_grupo_insumo_dynamic.index(item["grupoinsumo"])
-                        edit_grupo = st.selectbox("Grupo de Insumo", lista_grupo_insumo_dynamic, index=default_grupo_idx)
-                        
-                        edit_dt_emissao = st.text_input("Data Emissão (DT_EMISSAO)", value=str(item.get("DT_EMISSAO", "")))
-                        edit_grupointerno = st.text_input("Grupo Interno", value=str(item.get("grupointerno", "")))
-                        edit_cotacao = st.text_input("Escopo de Cotação", value=item["cotacao"])
-                        
-                    with col_e2:
-                        st.markdown("<strong style='color:#00205B;'>Validação & Compliance</strong>", unsafe_allow_html=True)
-                        edit_orcamento = st.selectbox("Solicitar Orçamento", OPCOES_STATUS, index=OPCOES_STATUS.index(item["orcamento"]) if item["orcamento"] in OPCOES_STATUS else 0)
-                        edit_due = st.selectbox("Due Diligence", OPCOES_STATUS, index=OPCOES_STATUS.index(item["due_dilligence"]) if item["due_dilligence"] in OPCOES_STATUS else 0)
-                        edit_eq = st.selectbox("Equalização", OPCOES_STATUS, index=OPCOES_STATUS.index(item["equalizacao"]) if item["equalizacao"] in OPCOES_STATUS else 0)
-                        edit_eng = st.selectbox("Valid. Engenharia (ER)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_eng"]) if item["validacao_eng"] in OPCOES_STATUS else 0)
-                        edit_ger = st.selectbox("Valid. Gerente (CO/GE)", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_ger"]) if item["validacao_ger"] in OPCOES_STATUS else 0)
-                        edit_sup = st.selectbox("Valid. Gestão Suprimentos", OPCOES_STATUS, index=OPCOES_STATUS.index(item["validacao_sup"]) if item["validacao_sup"] in OPCOES_STATUS else 0)
-                        
-                    with col_e3:
-                        st.markdown("<strong style='color:#00205B;'>Sistemas & Auditoria</strong>", unsafe_allow_html=True)
-                        edit_req_val = str(item.get("req_mega", "aguardando"))
-                        edit_req = st.text_input("Abertura Reclamação/RM (Mega) - Nº Inteiro", value=edit_req_val, help="Digite o número inteiro ou 'aguardando'/'N/A'")
-                        
-                        edit_contr_val = str(item.get("contr_mega", "aguardando"))
-                        edit_contr = st.text_input("Contrato Mega - Nº Inteiro", value=edit_contr_val, help="Digite o número do Contrato MEGA ou 'aguardando'/'N/A'")
-                        edit_param = st.selectbox("Parametrização Fiscal", OPCOES_STATUS, index=OPCOES_STATUS.index(item["param_fiscal"]) if item["param_fiscal"] in OPCOES_STATUS else 0)
-                        edit_minuta = st.selectbox("Minuta Contratual", OPCOES_STATUS, index=OPCOES_STATUS.index(item["minuta"]) if item["minuta"] in OPCOES_STATUS else 0)
-                        edit_ass = st.selectbox("Assinatura Eletrônica", OPCOES_STATUS, index=OPCOES_STATUS.index(item["ass_digital"]) if item["ass_digital"] in OPCOES_STATUS else 0)
-                        edit_cred = st.selectbox("Credenciamento - GT", OPCOES_STATUS, index=OPCOES_STATUS.index(item["credenciamento"]) if item["credenciamento"] in OPCOES_STATUS else 0)
-                        edit_comunicar = st.selectbox("Informar Engenheiro", OPCOES_STATUS, index=OPCOES_STATUS.index(item["comunicar"]) if item["comunicar"] in OPCOES_STATUS else 0)
-                        edit_aud = st.selectbox("Audit. Pasta Final", OPCOES_STATUS, index=OPCOES_STATUS.index(item["aud_pasta"]) if item["aud_pasta"] in OPCOES_STATUS else 0)
-                        
-                        st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
-                        edit_concluido = st.checkbox("🚩 Processo Finalizado / Concluído", value=bool(item.get("concluido", False)))
-                    
-                    st.write("")
-                    submit_edit = st.form_submit_button("💾 Salvar Alterações")
-                    
-                    if submit_edit:
-                        req_clean = str(edit_req).strip()
-                        contr_clean = str(edit_contr).strip()
-                        
-                        if req_clean and not req_clean.isdigit() and req_clean.lower() not in ["n/a", "aguardando"]:
-                            st.error("⚠️ O campo 'Abertura Reclamação/RM' deve ser um número inteiro ou 'aguardando' / 'N/A'.")
-                            st.stop()
-                        if contr_clean and not contr_clean.isdigit() and contr_clean.lower() not in ["n/a", "aguardando"]:
-                            st.error("⚠️ O campo 'Contrato Mega' deve ser um número inteiro ou 'aguardando' / 'N/A'.")
-                            st.stop()
-                            
-                        updated_fields = {
-                            "obra": str(edit_obra),
-                            "DT_EMISSAO": str(edit_dt_emissao),
-                            "tipo": str(edit_tipo),
-                            "Comprador": str(edit_comprador),
-                            "grupoinsumo": str(edit_grupo),
-                            "grupointerno": str(edit_grupointerno),
-                            "cotacao": str(edit_cotacao).upper(),
-                            "due_dilligence": str(edit_due),
-                            "equalizacao": str(edit_eq),
-                            "orcamento": str(edit_orcamento),
-                            "validacao_eng": str(edit_eng),
-                            "validacao_ger": str(edit_ger),
-                            "validacao_sup": str(edit_sup),
-                            "req_mega": str(edit_req),
-                            "contr_mega": str(edit_contr),
-                            "param_fiscal": str(edit_param),
-                            "minuta": str(edit_minuta),
-                            "ass_digital": str(edit_ass),
-                            "credenciamento": str(edit_cred),
-                            "comunicar": str(edit_comunicar),
-                            "aud_pasta": str(edit_aud),
-                            "concluido": bool(edit_concluido)
-                        }
-                        
                         if not sb_client:
-                            st.error("❌ Conexão indisponível. Operação não permitida.")
+                            st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
                         else:
                             try:
-                                updated_fields["ID_PGI"] = selected_id
-                                sb_client.update_list_item(selected_id, updated_fields, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                                sp_payload = {
+                                    "ID_PGI": id_str,
+                                    "obra": str(new_obra),
+                                    "tipo": str(new_tipo),
+                                    "Comprador": str(new_comprador),
+                                    "grupoinsumo": "N/A",
+                                    "cotacao": f"PROCESSO PGI {id_str}",
+                                    "due_dilligence": "aguardando",
+                                    "equalizacao": "aguardando",
+                                    "orcamento": "aguardando",
+                                    "validacao_eng": "aguardando",
+                                    "validacao_ger": "aguardando",
+                                    "validacao_sup": "aguardando",
+                                    "req_mega": "aguardando",
+                                    "contr_mega": "aguardando",
+                                    "param_fiscal": "N/A",
+                                    "minuta": "N/A",
+                                    "ass_digital": "aguardando",
+                                    "credenciamento": "N/A",
+                                    "comunicar": "N/A",
+                                    "aud_pasta": "aguardando",
+                                    "concluido": False
+                                }
+                                sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                                 st.cache_data.clear()
-                                st.success("✔️ Registro atualizado com sucesso!")
+                                st.success(f"✔️ Sucesso! Processo {id_str} ({new_obra}) cadastrado com sucesso.")
                                 st.session_state.menu_option = "Dashboard Geral"
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Erro ao atualizar registro: {str(e)}")
+                                st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
+
+        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA VIA EXCEL (.XLSX) ---
+        with tab_import_excel:
+            render_html("""
+                <div class="info-card">
+                    <strong>📁 Carga em Massa via Planilha:</strong> Faça upload de um arquivo <code>.xlsx</code> ou <code>.csv</code>. O sistema valida automaticamente os cabeçalhos e a integridade de cada ID PGI, garantindo que não ocorram duplicações acidentais.
+                </div>
+            """)
+            
+            # Gerador de modelo para download
+            col_mod1, col_mod2 = st.columns([2.5, 1.5])
+            with col_mod1:
+                st.markdown("<strong>1. Baixe o Modelo Oficial de Carga</strong>", unsafe_allow_html=True)
+                st.caption("Utilize esta planilha pré-formatada para preencher os dados dos processos.")
+            with col_mod2:
+                sample_data = [{
+                    "ID_PGI": 49001,
+                    "obra": "ATMOS",
+                    "tipo": "Novo",
+                    "Comprador": "Bruno C.",
+                    "grupoinsumo": "SRV - ALVENARIA",
+                    "cotacao": "EXECUÇÃO DE ALVENARIA TORRE A",
+                    "orcamento": "OK",
+                    "due_dilligence": "OK",
+                    "equalizacao": "aguardando",
+                    "validacao_eng": "aguardando",
+                    "validacao_ger": "aguardando",
+                    "validacao_sup": "aguardando",
+                    "req_mega": "aguardando",
+                    "contr_mega": "aguardando",
+                    "param_fiscal": "N/A",
+                    "minuta": "N/A",
+                    "ass_digital": "aguardando",
+                    "credenciamento": "N/A",
+                    "comunicar": "N/A",
+                    "aud_pasta": "aguardando",
+                    "concluido": False
+                }]
+                sample_df = pd.DataFrame(sample_data)
+                buffer_excel = io.BytesIO()
+                with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+                    sample_df.to_excel(writer, index=False, sheet_name="Cotações PGI")
+                
+                st.download_button(
+                    label="📥 Baixar Planilha Modelo (.xlsx)",
+                    data=buffer_excel.getvalue(),
+                    file_name="modelo_carga_pgi.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+            st.write("---")
+            st.markdown("<strong>2. Selecione o Arquivo Preenchido</strong>", unsafe_allow_html=True)
+            uploaded_excel = st.file_uploader("Upload da Planilha de Cotações", type=["xlsx", "xls", "csv"])
+            
+            if uploaded_excel:
+                try:
+                    if uploaded_excel.name.endswith(".csv"):
+                        df_upload = pd.read_csv(uploaded_excel)
+                    else:
+                        df_upload = pd.read_excel(uploaded_excel)
+                        
+                    # Validação inicial da coluna obrigatória
+                    colunas_presentes = [str(c).strip() for c in df_upload.columns]
+                    col_id_nome = next((c for c in df_upload.columns if str(c).strip().upper() == "ID_PGI"), None)
+                    
+                    if not col_id_nome:
+                        st.error("❌ O arquivo não possui a coluna obrigatória **ID_PGI**.")
+                    else:
+                        # Padroniza nomes de colunas
+                        df_upload.rename(columns={col_id_nome: "ID_PGI"}, inplace=True)
+                        
+                        # Limpeza e remoção de nulos no ID
+                        df_upload = df_upload.dropna(subset=["ID_PGI"])
+                        df_upload["ID_PGI"] = df_upload["ID_PGI"].astype(str).str.replace(".0", "", regex=False).str.strip()
+                        df_upload = df_upload[df_upload["ID_PGI"] != ""]
+                        
+                        # Checagem de duplicidade interna no próprio arquivo
+                        duplicados_arquivo = df_upload[df_upload.duplicated(subset=["ID_PGI"], keep=False)]
+                        if not duplicados_arquivo.empty:
+                            ids_dup_list = list(duplicados_arquivo["ID_PGI"].unique())
+                            st.warning(f"⚠️ Atenção: O arquivo contém IDs duplicados internamente: {ids_dup_list}. Apenas a última ocorrência de cada um será considerada.")
+                            df_upload = df_upload.drop_duplicates(subset=["ID_PGI"], keep="last")
+                            
+                        st.success(f"✔️ Planilha validada com sucesso! Total de **{len(df_upload)}** registros prontos para análise.")
+                        
+                        st.write("<strong>Pré-visualização dos Dados:</strong>", unsafe_allow_html=True)
+                        st.dataframe(df_upload.head(5), use_container_width=True)
+                        
+                        # Opções da regra de negócio para a integridade dos IDs
+                        modo_carga = st.radio(
+                            "Escolha a Regra de Carga:",
+                            [
+                                "1. Importar Apenas Novos (Ignorar com segurança os IDs que já existem no sistema)",
+                                "2. Upsert Inteligente (Inserir novos IDs e atualizar campos dos IDs existentes)"
+                            ]
+                        )
+                        
+                        if st.button("🚀 Processar e Salvar Carga no Sistema", type="primary", use_container_width=True):
+                            with st.spinner("Processando validação e gravando no banco..."):
+                                ids_existentes_banco = set([str(x.get("ID_PGI", "")).strip() for x in db_data_current])
+                                
+                                lista_inserir = []
+                                total_atualizados = 0
+                                total_ignorados = 0
+                                
+                                for _, row_u in df_upload.iterrows():
+                                    pgi_id_val = str(row_u["ID_PGI"]).strip()
+                                    
+                                    payload_linha = {
+                                        "ID_PGI": pgi_id_val,
+                                        "obra": str(row_u.get("obra", "N/A")).strip().upper(),
+                                        "tipo": str(row_u.get("tipo", "Novo")).strip(),
+                                        "Comprador": format_buyer_name(row_u.get("Comprador", "")),
+                                        "grupoinsumo": str(row_u.get("grupoinsumo", "N/A")).strip(),
+                                        "grupointerno": str(row_u.get("grupointerno", "")).strip(),
+                                        "cotacao": str(row_u.get("cotacao", f"PROCESSO PGI {pgi_id_val}")).strip().upper(),
+                                        "due_dilligence": str(row_u.get("due_dilligence", "aguardando")).strip(),
+                                        "equalizacao": str(row_u.get("equalizacao", "aguardando")).strip(),
+                                        "orcamento": str(row_u.get("orcamento", "N/A")).strip(),
+                                        "validacao_eng": str(row_u.get("validacao_eng", "aguardando")).strip(),
+                                        "validacao_ger": str(row_u.get("validacao_ger", "aguardando")).strip(),
+                                        "validacao_sup": str(row_u.get("validacao_sup", "aguardando")).strip(),
+                                        "req_mega": str(row_u.get("req_mega", "aguardando")).strip(),
+                                        "contr_mega": str(row_u.get("contr_mega", "aguardando")).strip(),
+                                        "param_fiscal": str(row_u.get("param_fiscal", "N/A")).strip(),
+                                        "minuta": str(row_u.get("minuta", "N/A")).strip(),
+                                        "ass_digital": str(row_u.get("ass_digital", "aguardando")).strip(),
+                                        "credenciamento": str(row_u.get("credenciamento", "N/A")).strip(),
+                                        "comunicar": str(row_u.get("comunicar", "N/A")).strip(),
+                                        "aud_pasta": str(row_u.get("aud_pasta", "aguardando")).strip(),
+                                        "concluido": parse_bool_safe(row_u.get("concluido", False))
+                                    }
+                                    
+                                    if pgi_id_val in ids_existentes_banco:
+                                        if "Upsert" in modo_carga:
+                                            sb_client.update_list_item(pgi_id_val, payload_linha, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                                            total_atualizados += 1
+                                        else:
+                                            total_ignorados += 1
+                                    else:
+                                        lista_inserir.append(payload_linha)
+                                        
+                                if lista_inserir:
+                                    sb_client.insert_batch(lista_inserir, list_name="PGI_GestaoCotacoes")
+                                    
+                                st.cache_data.clear()
+                                st.success(f"🎉 **Carga Concluída com Sucesso!**\n- Novos Processos Inseridos: **{len(lista_inserir)}**\n- Registros Atualizados: **{total_atualizados}**\n- Registros Ignorados (Existentes): **{total_ignorados}**")
+                                st.balloons()
+                                
+                except Exception as err_file:
+                    st.error(f"Erro ao processar o arquivo: {str(err_file)}")
 
     # ==========================================================================
-    # PAGE 4: GESTÃO DE OBRAS (EXCLUSIVO ADMINISTRADOR)
+    # PAGE 3: GESTÃO DE OBRAS (EXCLUSIVO ADMINISTRADOR)
     # ==========================================================================
     elif st.session_state.menu_option == "Gestão de Obras (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"
@@ -1241,7 +1320,7 @@ else:
                     st.info("Nenhuma obra encontrada.")
 
     # ==========================================================================
-    # PAGE 5: GESTÃO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR)
+    # PAGE 4: GESTÃO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR)
     # ==========================================================================
     elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"

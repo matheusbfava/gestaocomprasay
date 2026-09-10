@@ -369,22 +369,35 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 
+# --- INSTANCIAÇÃO DO CLIENTE SUPABASE ---
+sb_client = None
+if st.session_state.sb_connected and SupabaseClient:
+    try:
+        sb_client = SupabaseClient(
+            url=st.session_state.sb_url,
+            key=st.session_state.sb_key
+        )
+        sb_client.connect()
+    except Exception as e:
+        st.sidebar.error(f"❌ Erro ao inicializar o Supabase: {str(e)}")
+        st.session_state.sb_connected = False
+
 # --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def carregar_usuarios():
     """
     Busca a lista de usuários e credenciais direto da tabela 'usuarios' do Supabase.
     Caso contrário, retorna a lista simulada do session_state.
     """
-    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+    if st.session_state.get("db_mode") == "Supabase (Live)" and sb_client:
         try:
             users = sb_client.get_list_items(list_name="usuarios")
-            if users:
+            if isinstance(users, list) and len(users) > 0:
                 return users
         except Exception as e:
             st.sidebar.warning(f"⚠️ Falha ao ler tabela de usuários no Supabase: {str(e)}")
             
-    return st.session_state.users_data
+    return st.session_state.get("users_data", [])
 
 def login(username, password):
     username_clean = str(username).strip().lower()
@@ -577,18 +590,7 @@ if "db_data" not in st.session_state:
 # Opções padronizadas de status para garantir integridade das colunas de texto do SharePoint
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# --- INSTANCIAÇÃO DO CLIENTE SUPABASE ---
-sb_client = None
-if st.session_state.sb_connected and SupabaseClient:
-    try:
-        sb_client = SupabaseClient(
-            url=st.session_state.sb_url,
-            key=st.session_state.sb_key
-        )
-        sb_client.connect()
-    except Exception as e:
-        st.sidebar.error(f"❌ Erro ao inicializar o Supabase: {str(e)}")
-        st.session_state.sb_connected = False
+
 
 # --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO (COM CACHE) ---
 @st.cache_data(ttl=300)
@@ -1330,6 +1332,8 @@ else:
                             if st.session_state.db_mode == "Supabase (Live)" and sb_client:
                                 try:
                                     sb_client.insert_list_item(user_payload, list_name="usuarios")
+                                    if user_payload not in st.session_state.users_data:
+                                        st.session_state.users_data.append(user_payload)
                                     st.cache_data.clear()
                                     st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado com sucesso no Supabase!")
                                     st.rerun()
@@ -1393,6 +1397,11 @@ else:
                                             list_name="usuarios", 
                                             id_column="username"
                                         )
+                                        u_idx = next((i for i, u in enumerate(st.session_state.users_data) if str(u["username"]) == str(sel_username)), None)
+                                        if u_idx is not None:
+                                            st.session_state.users_data[u_idx] = updated_u_payload
+                                        else:
+                                            st.session_state.users_data.append(updated_u_payload)
                                         st.cache_data.clear()
                                         st.success(f"✔️ Dados do usuário '{sel_username}' atualizados com sucesso no Supabase!")
                                         st.rerun()

@@ -584,7 +584,7 @@ else:
             </div>
         """)
         
-        # --- BLOCO DO USUÁRIO ATIVO TOTALMENTE LEGÍVEL (FUNDO ESCURO E TIPOGRAFIA NÍTIDA) ---
+        # Bloco de usuário ativo em destaque visual
         perfil_nome = "Administrador" if st.session_state.get("user_perfil") == "administrador" else "Comprador"
         render_html(f"""
             <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px;">
@@ -623,7 +623,7 @@ else:
         if st.button("🚪 Sair do Aplicativo"):
             logout()
             
-    # Cabeçalho Limpo (Sem referências técnicas a banco de dados)
+    # Cabeçalho Limpo
     logo_header = get_logo_svg(theme="dark", width=120, height=25)
     render_html(f"""
         <div class="title-container">
@@ -653,7 +653,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL
+    # PAGE 1: DASHBOARD GERAL (COM DIFERENCIAÇÃO: TOTAIS, EM ANDAMENTO E FINALIZADOS)
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -661,11 +661,15 @@ else:
         df_calc = df_current.copy()
         if not df_calc.empty:
             total_processos = len(df_calc)
-            total_novos = len(df_calc[df_calc["tipo"].astype(str).str.strip().str.lower() == "novo"])
-            total_aditivos = len(df_calc[df_calc["tipo"].astype(str).str.strip().str.lower() == "aditivo"])
-            total_auditadas = len(df_calc[df_calc["aud_pasta"].astype(str).str.strip().str.upper() == "OK"])
+            # Critério Oficial: Processo finalizado quando a auditoria da pasta já foi realizada ('OK')
+            total_finalizados = len(df_calc[df_calc["aud_pasta"].astype(str).str.strip().str.upper() == "OK"])
+            # Processos em andamento: Processos cuja auditoria ainda não está finalizada
+            total_em_andamento = total_processos - total_finalizados
+            # Percentual de conclusão
+            taxa_conclusao = (total_finalizados / total_processos * 100) if total_processos > 0 else 0.0
         else:
-            total_processos = total_novos = total_aditivos = total_auditadas = 0
+            total_processos = total_finalizados = total_em_andamento = 0
+            taxa_conclusao = 0.0
         
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         
@@ -678,23 +682,23 @@ else:
             """)
         with col_m2:
             render_html(f"""
-                <div class="metric-card-custom">
-                    <div class="metric-label">Processos Novos</div>
-                    <div class="metric-value">{total_novos}</div>
+                <div class="metric-card-custom orange-border">
+                    <div class="metric-label">Processos em Andamento</div>
+                    <div class="metric-value" style="color: #FF6F00;">{total_em_andamento}</div>
                 </div>
             """)
         with col_m3:
             render_html(f"""
-                <div class="metric-card-custom orange-border">
-                    <div class="metric-label">Aditivos Contratuais</div>
-                    <div class="metric-value" style="color: #FF6F00;">{total_aditivos}</div>
+                <div class="metric-card-custom">
+                    <div class="metric-label">Processos Finalizados (Auditados)</div>
+                    <div class="metric-value" style="color: #28A745;">{total_finalizados}</div>
                 </div>
             """)
         with col_m4:
             render_html(f"""
                 <div class="metric-card-custom">
-                    <div class="metric-label">Pastas Auditadas (OK)</div>
-                    <div class="metric-value" style="color: #28A745;">{total_auditadas}</div>
+                    <div class="metric-label">Taxa de Conclusão</div>
+                    <div class="metric-value" style="color: #00205B;">{taxa_conclusao:.1f}%</div>
                 </div>
             """)
         

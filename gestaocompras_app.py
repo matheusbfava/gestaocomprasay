@@ -2,23 +2,22 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import sys
-import os
 
-# Adiciona o diretório atual ao path para garantir que possamos importar o módulo de autenticação
+# Adiciona o diretório atual ao path para garantir importação do cliente Supabase
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from supabase_client_v2 import SupabaseClient
 except ImportError:
     try:
-        from supabase_client_v2 import SupabaseClient
+        from supabase_client import SupabaseClient
     except ImportError:
         SupabaseClient = None
 
 
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações v19 (Supabase)",
+    page_title="PGI - Gestão de Cotações (Supabase Live)",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -56,15 +55,6 @@ def parse_float_safe(val):
     except ValueError:
         return 0.0
 
-
-
-
-# --- PALETA DE CORES INSTITUCIONAIS (A.YOSHII) ---
-# Azul Escuro Institucional (Pantone 2768 C): #00205B
-# Laranja Vibrante Institucional (Pantone 1505 C): #FF6F00
-# Cinza Escuro (Pantone 426 C): #1E1E1E
-# Cinza Médio (Pantone 423 C): #8C8C8C
-# Cinza Claro (Fundo/Bordas): #F4F6F9
 
 # Estilização CSS customizada para atender rigidamente ao Manual de Aplicação da Marca
 st.markdown("""
@@ -126,7 +116,7 @@ st.markdown("""
         margin-top: 2px;
     }
     
-    /* Cards de Métricas Customizados (Substituição do default do Streamlit - Mais Compactos) */
+    /* Cards de Métricas Customizados */
     .metric-card-custom {
         background-color: #FFFFFF;
         border-top: 3px solid #00205B;
@@ -187,12 +177,10 @@ st.markdown("""
         margin-bottom: 0;
     }
     
-    /* Customização Geral de Inputs e Selectboxes */
     div[data-baseweb="input"] {
         border-radius: 4px !important;
     }
     
-    /* Botões Gerais de Ação do Aplicativo */
     .stButton>button {
         background-color: #00205B !important;
         color: #FFFFFF !important;
@@ -207,7 +195,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(255,111,0,0.2) !important;
     }
     
-    /* Estilos das tabelas */
     .styled-table-title {
         color: #00205B;
         font-weight: bold;
@@ -221,146 +208,55 @@ st.markdown("""
 
 # --- FUNÇÃO DE RENDERIZAÇÃO DE HTML ROBUSTA ---
 def render_html(html_str):
-    """
-    Filtra novas linhas e espaços extras para evitar que o markdown do Streamlit
-    interprete tags HTML recuadas como blocos de código markdown.
-    Elimina erros visuais como '</div>' vazados na tela.
-    """
     clean_html = "".join([line.strip() for line in html_str.split("\n")])
     st.markdown(clean_html, unsafe_allow_html=True)
 
-# --- DEFINIÇÃO DE LOGO EM SVG (VETORIAL E EXATA) ---
+# --- DEFINIÇÃO DE LOGO EM SVG ---
 def get_logo_svg(theme="dark", width=145, height=30):
-    """
-    Gera o SVG exato da logomarca A.Yoshii respeitando o Manual de Aplicação.
-    O quadrado laranja (#FF6F00) abriga o círculo azul (#00205B) com o símbolo AY em branco.
-    A tipografia A.YOSHII varia de cor (Branco no tema dark/azul, e Azul no tema light/branco).
-    """
     text_color = "#FFFFFF" if theme == "dark" else "#00205B"
     return f'<svg width="{width}" height="{height}" viewBox="0 0 220 45" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><rect x="2" y="2" width="41" height="41" rx="4" fill="#FF6F00" /><circle cx="22.5" cy="22.5" r="17.5" fill="#FFFFFF" /><circle cx="22.5" cy="22.5" r="15" fill="#00205B" /><path d="M 16,29 L 21.5,14 L 23.5,14 L 29,29" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="18.5" y1="23.5" x2="26.5" y2="23.5" stroke="#FFFFFF" stroke-width="2.5" /><path d="M 25.5,23.5 L 29,31.5" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" /><text x="52" y="32" font-family="Helvetica, Arial, sans-serif" font-size="23" font-weight="900" fill="{text_color}" letter-spacing="1">A.YOSHII</text></svg>'
 
 # --- CRIAÇÃO DOS DROPDOWNS OFICIAIS DO CLIENTE ---
-
 LISTA_COMPRADORES = [
-    "Leonardo F.",
-    "Bruno C.",
-    "Caio S.",
-    "Heloysa C.",
-    "Angelica F.",
-    "Fernanda L.",
-    "Flaviane F.",
-    "Marcos T.",
-    "Erik G.",
-    "Aline D.",
-    "Evelise D.",
-    "Lorena P.",
-    "Thafani O.",
-    "Thayna L.",
-    "Bryan C.",
-    "Larissa M.",
-    "Lucia W.",
-    "Victor V.",
-    "Vanessa B.",
-    "Marcos F.",
-    "Joao S.",
-    "Andre P.",
-    "Luis K.",
-    "Gabriel M.",
-    "Matheus F.",
-    "Leonardo S.",
-    "Matheus C.",
-    "Roberta O."
+    "Leonardo F.", "Bruno C.", "Caio S.", "Heloysa C.", "Angelica F.", "Fernanda L.",
+    "Flaviane F.", "Marcos T.", "Erik G.", "Aline D.", "Evelise D.", "Lorena P.",
+    "Thafani O.", "Thayna L.", "Bryan C.", "Larissa M.", "Lucia W.", "Victor V.",
+    "Vanessa B.", "Marcos F.", "Joao S.", "Andre P.", "Luis K.", "Gabriel M.",
+    "Matheus F.", "Leonardo S.", "Matheus C.", "Roberta O."
 ]
 
 LISTA_FALLBACK_GRUPO_INSUMO = [
-    "PROTENSAO - ACESSORIOS E CONSULTORIA",
-    "SRV - ESQUADRIA DE ALUMINIO",
-    "SRV - ESQUADRIA DE MADEIRA",
-    "SRV - REBOCO EXTERNO",
-    "SRV - REBOCO INTERNO",
-    "SRV - PINTURA INTERNA",
-    "SRV - PINTURA EXTERNA",
-    "SRV - REVESTIMENTO CERAMICO",
-    "SRV - ALVENARIA",
-    "SRV - ARMACAO",
-    "SRV - CARPINTARIA",
-    "SRV - ESCORAMENTO METALICO",
-    "SRV - ESQUADRIA INOX",
-    "PISO AQUECIDO",
-    "SRV - ASPIRACAO CENTRAL",
-    "SRV - REGUL., CONTRAPISO E PISOS DE CONCRETO",
-    "SERVICO DE ANCORAGEM",
-    "LOCACAO DE EQUIPAMENTOS",
-    "SRV - FORMA METALICA",
-    "SRV - LIMPEZA",
-    "SRV - IMPERMEABILIZACAO",
-    "SRV - COBERTURA E TELHAMENTO",
-    "AUTOMAÇÃO",
-    "SRV - INST. ELET. E COMUNICACAO",
-    "PINTURA SOBRE PISO",
-    "SRV - FORRO DE GESSO E DRY WALL",
-    "SRV - FORROS ESPECIAIS",
-    "SRV - INSTALACAO DE GRANITO E MARMORE",
-    "SRV - INSTALACAO DE PISO LAMINADO E VINILICO",
-    "SRV - INSTALACAO HIDRAULICA",
-    "SRV - ESTRUTURA METALICA",
-    "PRE-MOLDADOS DE CONCRETO - ELEMENTOS ESTRUTURAIS",
-    "MONTAGEM E DESMONTAGEM DE EQUIPAMENTOS",
-    "SRV - FUNDACAO",
-    "SRV - PAVIMENTACAO ASFALTICA",
-    "SRV - TERRAPLANAGEM",
-    "SRV - INSTALACAO PARA GAS E ACESSORIOS",
-    "PERGOLADOS E DECKS DE MADEIRA",
-    "INSTALAÇÃO DE REVESTIMENTOS ESPECIAIS DE PAREDE",
-    "VIDROS E ACESSORIOS",
-    "PRESTADORES DE SERVIÇOS TÉCNICOS",
-    "SRV - SERRALHERIA",
-    "CHURRASQUEIRAS - SERVIÇO",
-    "SRV - PAISAGISMO",
-    "SRV - ESQUADRIA DE FERRO",
-    "SRV - INSTALACAO DE PISOS EXTERNOS",
-    "SERVIÇO DE SEGURANÇA PATRIMONIAL",
-    "CONTROLE TECNOLÓGICO DE CONCRETO",
-    "SRV - TOPOGRAFIA",
-    "SRV - CLIMATIZACAO"
+    "PROTENSAO - ACESSORIOS E CONSULTORIA", "SRV - ESQUADRIA DE ALUMINIO", "SRV - ESQUADRIA DE MADEIRA",
+    "SRV - REBOCO EXTERNO", "SRV - REBOCO INTERNO", "SRV - PINTURA INTERNA", "SRV - PINTURA EXTERNA",
+    "SRV - REVESTIMENTO CERAMICO", "SRV - ALVENARIA", "SRV - ARMACAO", "SRV - CARPINTARIA",
+    "SRV - ESCORAMENTO METALICO", "SRV - ESQUADRIA INOX", "PISO AQUECIDO", "SRV - ASPIRACAO CENTRAL",
+    "SRV - REGUL., CONTRAPISO E PISOS DE CONCRETO", "SERVICO DE ANCORAGEM", "LOCACAO DE EQUIPAMENTOS",
+    "SRV - FORMA METALICA", "SRV - LIMPEZA", "SRV - IMPERMEABILIZACAO", "SRV - COBERTURA E TELHAMENTO",
+    "AUTOMAÇÃO", "SRV - INST. ELET. E COMUNICACAO", "PINTURA SOBRE PISO", "SRV - FORRO DE GESSO E DRY WALL",
+    "SRV - FORROS ESPECIAIS", "SRV - INSTALACAO DE GRANITO E MARMORE", "SRV - INSTALACAO DE PISO LAMINADO E VINILICO",
+    "SRV - INSTALACAO HIDRAULICA", "SRV - ESTRUTURA METALICA", "PRE-MOLDADOS DE CONCRETO - ELEMENTOS ESTRUTURAIS",
+    "MONTAGEM E DESMONTAGEM DE EQUIPAMENTOS", "SRV - FUNDACAO", "SRV - PAVIMENTACAO ASFALTICA",
+    "SRV - TERRAPLANAGEM", "SRV - INSTALACAO PARA GAS E ACESSORIOS", "PERGOLADOS E DECKS DE MADEIRA",
+    "INSTALAÇÃO DE REVESTIMENTOS ESPECIAIS DE PAREDE", "VIDROS E ACESSORIOS", "PRESTADORES DE SERVIÇOS TÉCNICOS",
+    "SRV - SERRALHERIA", "CHURRASQUEIRAS - SERVIÇO", "SRV - PAISAGISMO", "SRV - ESQUADRIA DE FERRO",
+    "SRV - INSTALACAO DE PISOS EXTERNOS", "SERVIÇO DE SEGURANÇA PATRIMONIAL", "CONTROLE TECNOLÓGICO DE CONCRETO",
+    "SRV - TOPOGRAFIA", "SRV - CLIMATIZACAO"
 ]
 
 LISTA_TIPOS = ["Novo", "Aditivo"]
+OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# --- CONFIGURAÇÕES DE INTEGRAÇÃO (SUPABASE - BANCO DE DADOS ALTA PERFORMANCE) ---
+# --- CONFIGURAÇÕES DE INTEGRAÇÃO EXCLUSIVA SUPABASE ---
 if "sb_url" not in st.session_state:
     st.session_state.sb_url = st.secrets.get("SUPABASE_URL", st.secrets.get("supabase_url", ""))
 if "sb_key" not in st.session_state:
     st.session_state.sb_key = st.secrets.get("SUPABASE_KEY", st.secrets.get("supabase_key", ""))
-if "sb_connected" not in st.session_state:
-    has_secrets = bool(st.session_state.sb_url and st.session_state.sb_key)
-    st.session_state.sb_connected = st.secrets.get("sb_connected", has_secrets)
-if "db_mode" not in st.session_state:
-    has_secrets = bool(st.session_state.sb_url and st.session_state.sb_key)
-    st.session_state.db_mode = st.secrets.get("db_mode", "Supabase (Live)" if has_secrets else "Simulado")
 if "menu_option" not in st.session_state:
     st.session_state.menu_option = "Dashboard Geral"
 if "selected_pgi_to_edit" not in st.session_state:
     st.session_state.selected_pgi_to_edit = None
 if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
-if "users_data" not in st.session_state:
-    st.session_state.users_data = [
-        {
-            "username": "matheus.fava",
-            "nome": "Matheus Fava",
-            "senha": "ayoshii1050",
-            "perfil": "administrador",
-            "ativo": True
-        },
-        {
-            "username": "admin",
-            "nome": "Administrador System",
-            "senha": "1234",
-            "perfil": "administrador",
-            "ativo": True
-        }
-    ]
 if "user_perfil" not in st.session_state:
     st.session_state.user_perfil = "comprador"
 
@@ -368,10 +264,9 @@ if "user_perfil" not in st.session_state:
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-
 # --- INSTANCIAÇÃO DO CLIENTE SUPABASE ---
 sb_client = None
-if st.session_state.sb_connected and SupabaseClient:
+if st.session_state.sb_url and st.session_state.sb_key and SupabaseClient:
     try:
         sb_client = SupabaseClient(
             url=st.session_state.sb_url,
@@ -380,16 +275,15 @@ if st.session_state.sb_connected and SupabaseClient:
         sb_client.connect()
     except Exception as e:
         st.sidebar.error(f"❌ Erro ao inicializar o Supabase: {str(e)}")
-        st.session_state.sb_connected = False
+        sb_client = None
 
 # --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
 @st.cache_data(ttl=60)
 def carregar_usuarios():
     """
-    Busca a lista de usuários e credenciais direto da tabela 'usuarios' do Supabase.
-    Caso contrário, retorna a lista simulada do session_state.
+    Busca a lista de usuários e credenciais direto da tabela 'usuarios' do Supabase Real.
     """
-    if st.session_state.get("db_mode") == "Supabase (Live)" and sb_client:
+    if sb_client:
         try:
             users = sb_client.get_list_items(list_name="usuarios")
             if isinstance(users, list) and len(users) > 0:
@@ -397,7 +291,7 @@ def carregar_usuarios():
         except Exception as e:
             st.sidebar.warning(f"⚠️ Falha ao ler tabela de usuários no Supabase: {str(e)}")
             
-    return st.session_state.get("users_data", [])
+    return []
 
 def login(username, password):
     username_clean = str(username).strip().lower()
@@ -418,23 +312,23 @@ def login(username, password):
         else:
             st.error("❌ Senha incorreta.")
     else:
-        # Fallback direto para o administrador principal solicitado
+        # Bypass emergencial de segurança se a tabela no Supabase estiver em branco ou inacessível no primeiro setup
         if username_clean == "matheus.fava" and password == "ayoshii1050":
             st.session_state.logged_in = True
             st.session_state.user = "Matheus Fava"
             st.session_state.username = "matheus.fava"
             st.session_state.user_perfil = "administrador"
-            st.success("✔️ Login realizado com sucesso! Bem-vindo, Matheus Fava.")
+            st.success("✔️ Login de emergência realizado. Conectado como Administrador.")
             st.rerun()
         elif username_clean == "admin" and password == "1234":
             st.session_state.logged_in = True
             st.session_state.user = "Administrador System"
             st.session_state.username = "admin"
             st.session_state.user_perfil = "administrador"
-            st.success("✔️ Login de demonstração ativado.")
+            st.success("✔️ Login de emergência ativado.")
             st.rerun()
         else:
-            st.error("❌ Usuário não localizado ou senha incorreta.")
+            st.error("❌ Usuário não localizado na base real ou senha incorreta.")
 
 def logout():
     st.session_state.logged_in = False
@@ -443,163 +337,13 @@ def logout():
     st.session_state.pop("user_perfil", None)
     st.rerun()
 
-
-# --- MODELAGEM DE DADOS DO SHAREPOINT (SIMULADA COMO BASELINE COM NOVAS COLUNAS) ---
-if "db_data" not in st.session_state:
-    st.session_state.db_data = [
-        {
-            "ID_PGI": "45242",
-            "tipo": "Novo",
-            "Comprador": "Leonardo F.",
-            "grupoinsumo": "VIDROS E ACESSORIOS",
-            "cotacao": "INOX E VIDRO HORIZON",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "OK",
-            "validacao_eng": "OK",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "OK",
-            "minuta": "OK",
-            "ass_digital": "OK",
-            "credenciamento": "OK",
-            "comunicar": "OK",
-            "savings": "1050.00",
-            "aud_pasta": "OK",
-            "valor_fechado": "28002.46"
-        },
-        {
-            "ID_PGI": "48287",
-            "tipo": "Aditivo",
-            "Comprador": "Bruno C.",
-            "grupoinsumo": "SRV - FUNDACAO",
-            "cotacao": "ADITIVO FUNDAÇÃO ALTANA - HCM",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "OK",
-            "validacao_eng": "OK",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "N/A",
-            "minuta": "N/A",
-            "ass_digital": "N/A",
-            "credenciamento": "N/A",
-            "comunicar": "N/A",
-            "savings": "5827.90",
-            "aud_pasta": "N/A",
-            "valor_fechado": "110730.10"
-        },
-        {
-            "ID_PGI": "47597",
-            "tipo": "Aditivo",
-            "Comprador": "Caio S.",
-            "grupoinsumo": "SRV - TERRAPLANAGEM",
-            "cotacao": "ADITIVO TERRAPLANAGEM GAIA",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "N/A",
-            "validacao_eng": "N/A",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "N/A",
-            "minuta": "N/A",
-            "ass_digital": "N/A",
-            "credenciamento": "N/A",
-            "comunicar": "N/A",
-            "savings": "0.00",
-            "aud_pasta": "N/A",
-            "valor_fechado": "221779.96"
-        },
-        {
-            "ID_PGI": "46252",
-            "tipo": "Novo",
-            "Comprador": "Heloysa C.",
-            "grupoinsumo": "SRV - INST. ELET. E COMUNICACAO",
-            "cotacao": "GAIA ELÉTRICA ALLEGRO",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "N/A",
-            "validacao_eng": "OK",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "OK",
-            "minuta": "OK",
-            "ass_digital": "aguardando",
-            "credenciamento": "OK",
-            "comunicar": "OK",
-            "savings": "75000.00",
-            "aud_pasta": "aguardando",
-            "valor_fechado": "980000.00"
-        },
-        {
-            "ID_PGI": "43405",
-            "tipo": "Novo",
-            "Comprador": "Angelica F.",
-            "grupoinsumo": "SRV - PAISAGISMO",
-            "cotacao": "PAISAGISMO DUETTO",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "N/A",
-            "validacao_eng": "OK",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "OK",
-            "minuta": "OK",
-            "ass_digital": "aguardando",
-            "credenciamento": "OK",
-            "comunicar": "N/A",
-            "savings": "52406.72",
-            "aud_pasta": "aguardando",
-            "valor_fechado": "145073.39"
-        },
-        {
-            "ID_PGI": "47085",
-            "tipo": "Novo",
-            "Comprador": "Fernanda L.",
-            "grupoinsumo": "SRV - PINTURA EXTERNA",
-            "cotacao": "APLICAÇÃO DE FUNDO LIV",
-            "due_dilligence": "OK",
-            "equalizacao": "OK",
-            "orcamento": "N/A",
-            "validacao_eng": "OK",
-            "validacao_ger": "OK",
-            "validacao_sup": "OK",
-            "req_mega": "51240",
-            "contr_mega": "18029",
-            "param_fiscal": "N/A",
-            "minuta": "OK",
-            "ass_digital": "aguardando",
-            "credenciamento": "N/A",
-            "comunicar": "N/A",
-            "savings": "0.00",
-            "aud_pasta": "aguardando",
-            "valor_fechado": "16320.00"
-        }
-    ]
-
-# Opções padronizadas de status para garantir integridade das colunas de texto do SharePoint
-OPCOES_STATUS = ["OK", "N/A", "aguardando"]
-
-
-
 # --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO (COM CACHE) ---
 @st.cache_data(ttl=300)
 def carregar_grupos_insumo():
     """
-    Busca os nomes dos grupos de insumo direto do Supabase (aba dSUPRI_GruposInsumo / NomeGrupo)
-    se conectado em modo Live. Caso contrário, retorna os 50 itens fornecidos pelo usuário.
+    Busca os nomes dos grupos de insumo direto do Supabase (aba dSUPRI_GruposInsumo / NomeGrupo).
     """
-    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+    if sb_client:
         try:
             items = sb_client.get_list_items(list_name="dSUPRI_GruposInsumo")
             grupos = []
@@ -618,14 +362,14 @@ def carregar_grupos_insumo():
 # --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (COM CACHE) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
-    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+    if sb_client:
         try:
             items = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
             dados_mapeados = []
             for item in items:
                 dados_mapeados.append({
                     "ID_PGI": str(item.get("ID_PGI", "")),
-                    "sp_id": item.get("ID"), # ID de compatibilidade (linha)
+                    "sp_id": item.get("ID"),
                     "DT_EMISSAO": str(item.get("DT_EMISSAO", "")),
                     "tipo": str(item.get("tipo", "Novo")),
                     "Comprador": format_buyer_name(item.get("Comprador", "")),
@@ -652,34 +396,25 @@ def carregar_dados():
             return dados_mapeados
         except Exception as e:
             st.sidebar.error(f"⚠️ Erro ao ler dados do Supabase: {str(e)}")
-            st.sidebar.warning("🔄 Redirecionando automaticamente para o modo de simulação.")
-            st.session_state.db_mode = "Simulado"
-            return st.session_state.db_data
+            return []
     else:
-        return st.session_state.db_data
+        return []
 
 # --- FUNÇÃO PARA EXCLUIR REGISTRO ---
 def excluir_registro(pgi_id):
-    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+    if sb_client:
         try:
-            items = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
-            target_item = next((item for item in items if str(item.get("ID_PGI", "")) == str(pgi_id)), None)
-            if target_item and target_item.get("ID"):
-                sp_id = target_item.get("ID")
-                sb_client.delete_list_item(sp_id, list_name="PGI_GestaoCotacoes")
-                st.cache_data.clear()
-                return True
-            else:
-                st.error("Linha da planilha não localizada para este PGI.")
-                return False
+            sb_client.delete_list_item(str(pgi_id), list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+            st.cache_data.clear()
+            return True
         except Exception as e:
             st.error(f"❌ Erro ao excluir do Supabase: {str(e)}")
             return False
     else:
-        st.session_state.db_data = [item for item in st.session_state.db_data if str(item["ID_PGI"]) != str(pgi_id)]
-        return True
+        st.error("❌ Supabase desconectado. Operação cancelada.")
+        return False
 
-# --- HELPER DE BADGES DE STATUS PARA TABELA SCROLLABLE (HTML/CSS) ---
+# --- HELPER DE BADGES DE STATUS PARA TABELA SCROLLABLE ---
 def get_html_status_badge(status):
     status_clean = str(status).strip()
     if status_clean == "OK":
@@ -690,16 +425,6 @@ def get_html_status_badge(status):
         return f'<span style="background-color:#EAF4FF; color:#00205B; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #00205B; display:inline-block;">{status_clean}</span>'
     else:
         return f'<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00; display:inline-block;">{status_clean.upper()}</span>'
-
-# --- BADGES DE STATUS REDESENHADOS PARA ADERÊNCIA AO DESIGN ---
-def render_status_badge(status):
-    status_clean = str(status).strip()
-    if status_clean == "OK":
-        return '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745;">OK</span>'
-    elif status_clean == "N/A":
-        return '<span style="background-color:#F4F6F9; color:#8C8C8C; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #8C8C8C;">N/A</span>'
-    else:
-        return '<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00;">PENDENTE</span>'
 
 # --- TELA DE LOGIN ---
 if not st.session_state.logged_in:
@@ -721,7 +446,7 @@ if not st.session_state.logged_in:
                     🔑 Área Restrita de Acesso
                 </h3>
             """)
-            username_input = st.text_input("Usuário", placeholder="ID do comprador (ex: admin)")
+            username_input = st.text_input("Usuário", placeholder="ID do usuário (ex: matheus.fava)")
             password_input = st.text_input("Senha", type="password", placeholder="Digite a sua senha corporativa...")
             submit_button = st.form_submit_button("Acessar Painel")
             if submit_button:
@@ -730,7 +455,7 @@ if not st.session_state.logged_in:
         render_html("""
             <div style="background-color: #F4F6F9; border-top: 3px solid #FF6F00; padding: 10px; border-radius: 4px; margin-top: 10px; text-align: center;">
                 <p style="margin: 0; font-size: 10px; color: #1E1E1E;">
-                    💡 <strong>Credenciais de Demonstração:</strong><br>
+                    💡 <strong>Acesso ao Sistema:</strong><br>
                     Usuário Administrador: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">matheus.fava</code> | 
                     Senha: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">ayoshii1050</code>
                 </p>
@@ -739,13 +464,12 @@ if not st.session_state.logged_in:
 
 # --- TELA PRINCIPAL (APÓS LOGIN) ---
 else:
-    # Carregamento de grupos de insumo dinâmicos
     lista_grupo_insumo_dynamic = carregar_grupos_insumo()
     
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar de Navegação e Configurações (Cores e Ícones Corporativos)
+    # Sidebar de Navegação e Configurações
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
@@ -761,26 +485,20 @@ else:
         st.write("---")
         st.subheader("🗄️ Origem dos Dados")
         
-        if st.session_state.sb_connected:
-            options_mode = ["Simulado", "Supabase (Live)"]
-            selected_mode = st.radio(
-                "Alternar Base de Dados",
-                options_mode,
-                index=options_mode.index(st.session_state.db_mode) if st.session_state.db_mode in options_mode else 0
-            )
-            if selected_mode != st.session_state.db_mode:
-                st.session_state.db_mode = selected_mode
-                st.rerun()
-        else:
+        if sb_client:
             render_html("""
-                <div style="background-color: rgba(255,111,0,0.15); border: 1px solid #FF6F00; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
-                    ⚠️ <strong>Supabase Desconectado.</strong> Executando modo simulado.
+                <div style="background-color: rgba(40,167,69,0.15); border: 1px solid #28A745; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
+                    🟢 <strong>Base Real Ativa:</strong> Supabase PostgreSQL
                 </div>
             """)
-            st.session_state.db_mode = "Simulado"
+        else:
+            render_html("""
+                <div style="background-color: rgba(220,53,69,0.15); border: 1px solid #DC3545; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
+                    🔴 <strong>Supabase Desconectado.</strong> Configure os Secrets para conectar.
+                </div>
+            """)
             
         st.write("---")
-        # Permissões dinâmicas de menu baseadas no perfil do usuário
         is_admin = st.session_state.get("user_perfil") == "administrador"
         nav_options = ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros"]
         if is_admin:
@@ -806,13 +524,13 @@ else:
         if st.button("🚪 Sair do Aplicativo"):
             logout()
             
-    # Título do Painel Conectado (Identidade A.Yoshii Premium - Compactado)
+    # Título do Painel Conectado
     logo_header = get_logo_svg(theme="dark", width=120, height=25)
     render_html(f"""
         <div class="title-container">
             <div class="title-text-box">
                 <div class="title-main">Gestão de Cotações de Suprimentos</div>
-                <div class="title-sub">Bases de Dados Integradas: DPTO_SUPRIMENTOS / PGI_GestaoCotacoes</div>
+                <div class="title-sub">Base de Dados Oficial: Supabase Real (PostgreSQL) / PGI_GestaoCotacoes</div>
             </div>
             <div style="padding: 2px;">
                 {logo_header}
@@ -820,14 +538,14 @@ else:
         </div>
     """)
 
-    # LOGICA DE CONFIRMAÇÃO DE EXCLUSÃO (BANNER DE ALERTA NO TOP DO DASHBOARD)
+    # LOGICA DE CONFIRMAÇÃO DE EXCLUSÃO
     if st.session_state.confirm_delete_id:
-        st.warning(f"⚠️ **Confirmação de Exclusão:** Deseja realmente excluir permanentemente o registro de ID PGI **{st.session_state.confirm_delete_id}** da base de dados ({st.session_state.db_mode})?")
+        st.warning(f"⚠️ **Confirmação de Exclusão:** Deseja realmente excluir permanentemente o registro de ID PGI **{st.session_state.confirm_delete_id}** da base real do Supabase?")
         col_yes, col_no = st.columns([1, 10])
         with col_yes:
             if st.button("✅ Sim, Excluir", key="confirm_yes_btn"):
                 if excluir_registro(st.session_state.confirm_delete_id):
-                    st.success(f"✔️ Registro {st.session_state.confirm_delete_id} excluído com sucesso.")
+                    st.success(f"✔️ Registro {st.session_state.confirm_delete_id} excluído com sucesso do Supabase.")
                 st.session_state.confirm_delete_id = None
                 st.rerun()
         with col_no:
@@ -837,9 +555,8 @@ else:
 
     # PAGE 1: DASHBOARD GERAL
     if st.session_state.menu_option == "Dashboard Geral":
-        st.markdown(f"<h3 class='styled-table-title'>📊 Indicadores de Performance ({st.session_state.db_mode})</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📊 Indicadores de Performance (Supabase Real)</h3>", unsafe_allow_html=True)
         
-        # Faz o parsing seguro das colunas do SharePoint (que chegam como texto)
         df_calc = df_current.copy()
         if not df_calc.empty:
             df_calc["valor_fechado_num"] = df_calc["valor_fechado"].apply(parse_float_safe)
@@ -852,7 +569,6 @@ else:
         else:
             total_fechado_all = total_savings_all = media_savings_all = taxa_economia_all = 0
         
-        # Exibição de Métricas Principais usando Cards Customizados (Manual de Identidade Visual - Compactado)
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         
         with col_m1:
@@ -886,7 +602,7 @@ else:
                 </div>
             """)
         
-        # --- SEÇÃO DE FILTROS AVANÇADOS PESQUISÁVEIS COM CONTEXTO DE 'CONTÉM' ---
+        # --- SEÇÃO DE FILTROS AVANÇADOS ---
         with st.expander("🔍 Filtros de Pesquisa por Coluna (Modo Contém / Pesquisa Parcial)", expanded=False):
             st.info("Digite ou selecione termos para pesquisar em qualquer uma das colunas. A tabela abaixo será filtrada para exibir apenas registros que **contêm** o texto selecionado (case-insensitive).")
             
@@ -926,7 +642,6 @@ else:
                 if st.button("🔄 Limpar Filtros", use_container_width=True):
                     st.rerun()
 
-        # Aplica a lógica de filtros de 'contém' (contains)
         df_filtered = df_current.copy()
         if not df_filtered.empty:
             if f_id != "Todos":
@@ -950,10 +665,9 @@ else:
             if f_aud != "Todos":
                 df_filtered = df_filtered[df_filtered["aud_pasta"].astype(str).str.contains(f_aud, case=False, na=False)]
 
-        st.markdown("<h3 class='styled-table-title'>📋 Lista Consolidada de Processos de Cotação (Todas as 21 Colunas Ativas)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📋 Lista Consolidada de Processos de Cotação (Base Supabase)</h3>", unsafe_allow_html=True)
         
         if not df_filtered.empty:
-            # --- PAINEL DE AÇÕES RÁPIDAS ---
             st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar ou Excluir o registro.</div>", unsafe_allow_html=True)
             col_ac1, col_ac2, col_ac3 = st.columns([2, 1, 1])
             with col_ac1:
@@ -968,7 +682,6 @@ else:
                     st.session_state.confirm_delete_id = action_pgi
                     st.rerun()
 
-            # --- TABELA COMPLETA COM ROLAGEM LATERAL ---
             headers = [
                 "ID PGI", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                 "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
@@ -989,7 +702,6 @@ else:
             for index, row in df_filtered.iterrows():
                 table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                 
-                # Valores formatados de moeda
                 val_s = f"R$ {parse_float_safe(row['savings']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 val_f = f"R$ {parse_float_safe(row['valor_fechado']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
@@ -999,7 +711,6 @@ else:
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
                 table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{row['cotacao']}</td>"
                 
-                # Badges de status para o restante
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['orcamento'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['due_dilligence'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['equalizacao'])}</td>"
@@ -1007,7 +718,6 @@ else:
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_ger'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_sup'])}</td>"
                 
-                # RM e Contrato (inteiros livres ou status)
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['req_mega'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['contr_mega'])}</td>"
                 
@@ -1026,15 +736,18 @@ else:
             table_html += "</tbody></table></div>"
             st.markdown(table_html, unsafe_allow_html=True)
         else:
-            st.info("Nenhuma cotação localizada nesta base de dados correspondente aos filtros aplicados.")
+            if not sb_client:
+                st.warning("⚠️ O aplicativo está desconectado do Supabase. Configure suas credenciais na página de Integração Supabase.")
+            else:
+                st.info("Nenhuma cotação localizada na base de dados real do Supabase.")
 
     # PAGE 2: LANÇAR NOVA COTAÇÃO
     elif st.session_state.menu_option == "Adicionar ID":
-        st.markdown(f"<h3 class='styled-table-title'>🆕 Cadastrar Novo ID ({st.session_state.db_mode})</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo ID (Supabase Real)</h3>", unsafe_allow_html=True)
         
         render_html("""
             <div class="info-card">
-                <strong>🛡️ Adicionar Novo ID de Processo:</strong> Insira o ID PGI, selecione o Tipo de Processo e o Comprador responsável para iniciar um novo fluxo. Os demais campos de status serão iniciados automaticamente como 'aguardando' ou 'N/A' e poderão ser atualizados no menu de Gerenciamento.
+                <strong>🛡️ Adicionar Novo ID de Processo:</strong> Insira o ID PGI, selecione o Tipo de Processo e o Comprador responsável para iniciar um novo fluxo na base real. Os demais campos de status serão iniciados automaticamente como 'aguardando' ou 'N/A'.
             </div>
         """)
         
@@ -1056,31 +769,9 @@ else:
                 elif str(new_id) in existing_ids:
                     st.error(f"❌ Erro de Unicidade: Já existe um registro com o ID_PGI '{new_id}'.")
                 else:
-                    new_item = {
-                        "ID_PGI": str(int(new_id)),
-                        "tipo": str(new_tipo),
-                        "Comprador": str(new_comprador),
-                        "grupoinsumo": "N/A",
-                        "cotacao": f"PROCESSO PGI {int(new_id)}",
-                        "due_dilligence": "aguardando",
-                        "equalizacao": "aguardando",
-                        "orcamento": "aguardando",
-                        "validacao_eng": "aguardando",
-                        "validacao_ger": "aguardando",
-                        "validacao_sup": "aguardando",
-                        "req_mega": "aguardando",
-                        "contr_mega": "aguardando",
-                        "param_fiscal": "N/A",
-                        "minuta": "N/A",
-                        "ass_digital": "aguardando",
-                        "credenciamento": "N/A",
-                        "comunicar": "N/A",
-                        "savings": "0.00",
-                        "aud_pasta": "aguardando",
-                        "valor_fechado": "0.00"
-                    }
-                    
-                    if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+                    if not sb_client:
+                        st.error("❌ Supabase desconectado. Não é possível cadastrar registros sem conexão com a base real.")
+                    else:
                         try:
                             sp_payload = {
                                 "ID_PGI": str(int(new_id)),
@@ -1108,29 +799,23 @@ else:
                             sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
                             st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Supabase.")
+                            st.session_state.menu_option = "Dashboard Geral"
+                            st.rerun()
                         except Exception as e:
                             st.error(f"❌ Erro ao gravar no Supabase: {str(e)}")
-                    else:
-                        st.session_state.db_data.append(new_item)
-                        st.success(f"✔️ Sucesso! Processo {new_id} registrado localmente (Base Simulada).")
-                        
-                    st.session_state.menu_option = "Dashboard Geral"
-                    st.rerun()
 
     # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS
     elif st.session_state.menu_option == "Gerenciamento de Registros":
-        st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações (Supabase Real)</h3>", unsafe_allow_html=True)
         
         if df_current.empty:
-            st.warning("Nenhum dado disponível para edição.")
+            st.warning("Nenhum dado disponível na base do Supabase para edição.")
         else:
             list_ids = [f"{item['ID_PGI']} - {item['cotacao']}" for item in db_data_current]
             
-            # Se o comprador clicou no lápis de alguma linha, pré-seleciona ela automaticamente
             selected_idx_default = 0
             if st.session_state.selected_pgi_to_edit:
                 selected_idx_default = next((i for i, item in enumerate(db_data_current) if str(item["ID_PGI"]) == str(st.session_state.selected_pgi_to_edit)), 0)
-                # Reseta o clique para não prender a navegação futura
                 st.session_state.selected_pgi_to_edit = None
 
             selected_option = st.selectbox("Selecione o Processo Interno para Editar", list_ids, index=selected_idx_default)
@@ -1175,7 +860,6 @@ else:
                         
                     with col_e3:
                         st.markdown("<strong style='color:#00205B;'>Sistemas & Auditoria</strong>", unsafe_allow_html=True)
-                        # Campos livres para número inteiro conforme pedido (v13)
                         edit_req_val = str(item.get("req_mega", "aguardando"))
                         edit_req = st.text_input("Abertura Reclamação/RM (Mega) - Nº Inteiro", value=edit_req_val, help="Digite o número inteiro do processo ou 'aguardando'/'N/A'")
                         
@@ -1192,7 +876,6 @@ else:
                     submit_edit = st.form_submit_button("💾 Salvar Alterações")
                     
                     if submit_edit:
-                        # Validação de formato para Abertura RM e Contrato MEGA
                         req_clean = str(edit_req).strip()
                         contr_clean = str(edit_contr).strip()
                         
@@ -1225,48 +908,51 @@ else:
                             "comunicar": str(edit_comunicar),
                             "savings": f"{edit_savings:.2f}",
                             "aud_pasta": str(edit_aud),
-                            "valor_fechado": f"{edit_valor:.2f}"                        }
+                            "valor_fechado": f"{edit_valor:.2f}"
+                        }
                         
-                        if st.session_state.db_mode == "Supabase (Live)" and sb_client:
+                        if not sb_client:
+                            st.error("❌ Supabase desconectado. Operação não permitida.")
+                        else:
                             try:
                                 updated_fields["ID_PGI"] = selected_id
-                                sb_client.update_list_item(None, updated_fields, list_name="PGI_GestaoCotacoes")
+                                sb_client.update_list_item(selected_id, updated_fields, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
                                 st.cache_data.clear()
-                                st.success("✔️ Registro atualizado com sucesso DIRETAMENTE no Supabase!")
+                                st.success("✔️ Registro atualizado com sucesso no Supabase!")
+                                st.session_state.menu_option = "Dashboard Geral"
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Erro ao atualizar no Supabase: {str(e)}")
-                        else:
-                            updated_fields["ID_PGI"] = selected_id
-                            sim_idx = next(i for i, sim_item in enumerate(st.session_state.db_data) if str(sim_item["ID_PGI"]) == str(selected_id))
-                            st.session_state.db_data[sim_idx] = updated_fields
-                            st.success("✔️ Registro atualizado com sucesso na Base Simulada!")
-                            
-                        st.session_state.menu_option = "Dashboard Geral"
-                        st.rerun()
 
-
-    # PAGE 5: GESTÃO DE USUÁRIOS E ACESSOS (EXCLUSIVO PARA ADMINISTRADORES)
+    # PAGE 4: GESTÃO DE USUÁRIOS E ACESSOS (EXCLUSIVO PARA ADMINISTRADORES)
     elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
             st.error("🔒 **Acesso Negado:** Apenas usuários com perfil de **Administrador** possuem privilégio para acessar esta página.")
             st.stop()
 
-        st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários (Supabase Real)</h3>", unsafe_allow_html=True)
         
-        render_html("""
-            <div class="info-card">
-                <strong>👑 Painel Administrativo de Usuários:</strong> Cadastre novos compradores ou administradores, gerencie senhas e altere os status de acesso. As alterações realizadas aqui refletem instantaneamente na autenticação do aplicativo.
-            </div>
-        """)
+        if sb_client:
+            render_html("""
+                <div class="success-card">
+                    <h4>🟢 Conexão com o Supabase Ativa</h4>
+                    <p>Todos os cadastros e alterações de usuários serão salvos permanentemente na tabela <code>usuarios</code> do seu banco SQL.</p>
+                </div>
+            """)
+        else:
+            render_html("""
+                <div class="info-card" style="border-left-color: #DC3545;">
+                    <h4>🔴 Supabase Desconectado</h4>
+                    <p>Conecte o Supabase na aba de Integração para gerenciar contas de usuários na base de dados real.</p>
+                </div>
+            """)
 
-        # Carrega lista completa de usuários ativas
         lista_usuarios_atual = carregar_usuarios()
         df_users = pd.DataFrame(lista_usuarios_atual)
 
-        # Exibição da Tabela de Usuários
         if not df_users.empty:
-            st.markdown("<strong style='color:#00205B;'>Lista de Usuários Cadastrados no Sistema</strong>", unsafe_allow_html=True)
+            st.markdown("<strong style='color:#00205B;'>Lista de Usuários Cadastrados no Banco SQL (usuarios)</strong>", unsafe_allow_html=True)
             
             headers_users = ["Username / Login", "Nome Completo", "Perfil de Acesso", "Status da Conta"]
             u_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 20px;'>"
@@ -1296,7 +982,6 @@ else:
             u_html += "</tbody></table></div>"
             st.markdown(u_html, unsafe_allow_html=True)
 
-        # Tabs de Gerenciamento: Cadastrar vs Editar
         tab_cad, tab_edit = st.tabs(["➕ Cadastrar Novo Usuário", "✏️ Editar Usuário Existente"])
 
         with tab_cad:
@@ -1311,7 +996,7 @@ else:
                     new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores enxergam este painel e gerenciam acessos.")
                     new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
 
-                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário")
+                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário no Supabase")
 
                 if submit_new_u:
                     if not new_u_username or not new_u_nome or not new_u_senha:
@@ -1320,6 +1005,8 @@ else:
                         existing_usernames = [str(x.get("username", "")).lower() for x in lista_usuarios_atual]
                         if new_u_username in existing_usernames:
                             st.error(f"❌ O username '{new_u_username}' já existe no sistema.")
+                        elif not sb_client:
+                            st.error("❌ Supabase desconectado. Não foi possível salvar o usuário.")
                         else:
                             user_payload = {
                                 "username": new_u_username,
@@ -1328,26 +1015,17 @@ else:
                                 "perfil": new_u_perfil,
                                 "ativo": new_u_ativo
                             }
-                            
-                            if st.session_state.db_mode == "Supabase (Live)" and sb_client:
-                                try:
-                                    sb_client.insert_list_item(user_payload, list_name="usuarios")
-                                    if user_payload not in st.session_state.users_data:
-                                        st.session_state.users_data.append(user_payload)
-                                    st.cache_data.clear()
-                                    st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado com sucesso no Supabase!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Erro ao salvar usuário no Supabase: {str(e)}")
-                            else:
-                                st.session_state.users_data.append(user_payload)
+                            try:
+                                sb_client.insert_list_item(user_payload, list_name="usuarios")
                                 st.cache_data.clear()
-                                st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado na Base Simulada!")
+                                st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado com sucesso no Supabase!")
                                 st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Erro ao salvar usuário no Supabase: {str(e)}")
 
         with tab_edit:
             if not lista_usuarios_atual:
-                st.info("Nenhum usuário cadastrado para edição.")
+                st.info("Nenhum usuário cadastrado na base real para edição.")
             else:
                 user_options = [f"{u.get('username')} - {u.get('nome')} ({u.get('perfil')})" for u in lista_usuarios_atual]
                 selected_user_str = st.selectbox("Selecione o Usuário para Editar", user_options)
@@ -1380,6 +1058,8 @@ else:
                         if submit_edit_u:
                             if not edit_u_nome or not edit_u_senha:
                                 st.error("❌ Nome e Senha são campos obrigatórios.")
+                            elif not sb_client:
+                                st.error("❌ Supabase desconectado. Não foi possível atualizar o usuário.")
                             else:
                                 updated_u_payload = {
                                     "username": sel_username,
@@ -1388,39 +1068,26 @@ else:
                                     "perfil": edit_u_perfil,
                                     "ativo": edit_u_ativo
                                 }
-
-                                if st.session_state.db_mode == "Supabase (Live)" and sb_client:
-                                    try:
-                                        sb_client.update_list_item(
-                                            item_id=sel_username, 
-                                            item_data=updated_u_payload, 
-                                            list_name="usuarios", 
-                                            id_column="username"
-                                        )
-                                        u_idx = next((i for i, u in enumerate(st.session_state.users_data) if str(u["username"]) == str(sel_username)), None)
-                                        if u_idx is not None:
-                                            st.session_state.users_data[u_idx] = updated_u_payload
-                                        else:
-                                            st.session_state.users_data.append(updated_u_payload)
-                                        st.cache_data.clear()
-                                        st.success(f"✔️ Dados do usuário '{sel_username}' atualizados com sucesso no Supabase!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Erro ao atualizar usuário no Supabase: {str(e)}")
-                                else:
-                                    u_idx = next(i for i, u in enumerate(st.session_state.users_data) if str(u["username"]) == str(sel_username))
-                                    st.session_state.users_data[u_idx] = updated_u_payload
+                                try:
+                                    sb_client.update_list_item(
+                                        item_id=sel_username, 
+                                        item_data=updated_u_payload, 
+                                        list_name="usuarios", 
+                                        id_column="username"
+                                    )
                                     st.cache_data.clear()
-                                    st.success(f"✔️ Dados do usuário '{sel_username}' atualizados na Base Simulada!")
+                                    st.success(f"✔️ Dados do usuário '{sel_username}' atualizados com sucesso no Supabase!")
                                     st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao atualizar usuário no Supabase: {str(e)}")
 
-    # PAGE 4: PAINEL DE CONFIGURAÇÃO E TESTE DO SUPABASE
+    # PAGE 5: PAINEL DE CONFIGURAÇÃO E TESTE DO SUPABASE
     elif st.session_state.menu_option == "Integração Supabase":
         st.markdown("<h3 class='styled-table-title'>⚡ Painel de Integração do Supabase (Banco SQL de Alta Performance)</h3>", unsafe_allow_html=True)
         
         render_html("""
             <div class="info-card">
-                <strong>🚀 Banco de Dados SQL de Alta Performance:</strong> O Supabase oferece respostas em milissegundos para consultas e atualizações de dados. Configure a sua <code>SUPABASE_URL</code> e a sua <code>SUPABASE_KEY</code> (chave anon/public) abaixo ou através da aba <strong>Secrets</strong> do Streamlit Cloud.
+                <strong>🚀 Banco de Dados SQL de Alta Performance:</strong> Configure a sua <code>SUPABASE_URL</code> e a sua <code>SUPABASE_KEY</code> (chave anon/public) abaixo ou através da aba <strong>Secrets</strong> do Streamlit Cloud.
             </div>
         """)
         
@@ -1442,38 +1109,34 @@ else:
                             
                             st.session_state.sb_url = cfg_sb_url
                             st.session_state.sb_key = cfg_sb_key
-                            st.session_state.sb_connected = True
-                            st.session_state.db_mode = "Supabase (Live)"
-                            
                             st.cache_data.clear()
                             st.success("✔️ Conexão com o Supabase estabelecida com sucesso!")
                             st.rerun()
                         except Exception as e:
-                            st.session_state.sb_connected = False
-                            st.session_state.db_mode = "Simulado"
                             st.error(f"❌ Falha ao conectar ao Supabase: {str(e)}")
                             
-        if st.session_state.sb_connected:
+        if sb_client:
             render_html(f"""
                 <div class="success-card">
                     <h4>✅ Conectado ao Supabase com Sucesso!</h4>
                     <p><strong>Project URL:</strong> <code>{st.session_state.sb_url}</code></p>
-                    <p>Modo Live ativo. O aplicativo está lendo e gravando diretamente no banco SQL.</p>
+                    <p>O aplicativo está operando 100% integrado à base de dados real do PostgreSQL.</p>
                 </div>
             """)
             if st.button("🔌 Desconectar Supabase", use_container_width=True):
-                st.session_state.sb_connected = False
-                st.session_state.db_mode = "Simulado"
+                st.session_state.sb_url = ""
+                st.session_state.sb_key = ""
+                st.cache_data.clear()
                 st.rerun()
                 
         st.write("")
-        st.markdown("<h3 class='styled-table-title'>📐 Estrutura das Tabelas do Supabase (SQL Editor)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📐 Estrutura das Tabelas no Supabase (SQL Editor)</h3>", unsafe_allow_html=True)
         
         render_html("""
         <div class="info-card">
             <h4>📍 Nomes das Tabelas Ativas no Supabase:</h4>
             <p>1. <code>PGI_GestaoCotacoes</code> (Armazena as 21 colunas de cotações e o ID_PGI como Chave Primária)</p>
             <p>2. <code>dSUPRI_GruposInsumo</code> (Armazena os nomes dos grupos de insumo)</p>
-            <p><em>Execute o arquivo <code>schema.sql</code> fornecido no SQL Editor do seu painel Supabase para criar as tabelas automaticamente.</em></p>
+            <p>3. <code>usuarios</code> (Armazena os logins, nomes, senhas, perfis e status de ativação)</p>
         </div>
         """)

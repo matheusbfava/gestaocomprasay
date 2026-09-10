@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import sys
+import os
 
 # Adiciona o diretório atual ao path para garantir importação do cliente Supabase
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

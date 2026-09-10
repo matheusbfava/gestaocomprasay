@@ -1084,7 +1084,7 @@ else:
                             except Exception as e:
                                 st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
-        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA VIA EXCEL (.XLSX) ---
+# --- SUB-ABA 2: IMPORTAÇÃO EM MASSA VIA EXCEL (.XLSX OU .CSV) ---
         with tab_import_excel:
             render_html("""
                 <div class="info-card">
@@ -1092,7 +1092,7 @@ else:
                 </div>
             """)
             
-            # Gerador de modelo para download
+            # Gerador protegido de modelo para download
             col_mod1, col_mod2 = st.columns([2.5, 1.5])
             with col_mod1:
                 st.markdown("<strong>1. Baixe o Modelo Oficial de Carga</strong>", unsafe_allow_html=True)
@@ -1122,17 +1122,35 @@ else:
                     "concluido": False
                 }]
                 sample_df = pd.DataFrame(sample_data)
-                buffer_excel = io.BytesIO()
-                with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-                    sample_df.to_excel(writer, index=False, sheet_name="Cotações PGI")
                 
-                st.download_button(
-                    label="📥 Baixar Planilha Modelo (.xlsx)",
-                    data=buffer_excel.getvalue(),
-                    file_name="modelo_carga_pgi.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                # Geração com fallback seguro: tenta openpyxl (xlsx); se não houver, usa CSV
+                tem_openpyxl = False
+                try:
+                    import openpyxl
+                    tem_openpyxl = True
+                except ImportError:
+                    tem_openpyxl = False
+
+                if tem_openpyxl:
+                    buffer_excel = io.BytesIO()
+                    with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+                        sample_df.to_excel(writer, index=False, sheet_name="Cotações PGI")
+                    st.download_button(
+                        label="📥 Baixar Modelo (.xlsx)",
+                        data=buffer_excel.getvalue(),
+                        file_name="modelo_carga_pgi.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    csv_data = sample_df.to_csv(index=False, sep=";").encode("utf-8-sig")
+                    st.download_button(
+                        label="📥 Baixar Modelo (.csv / Excel)",
+                        data=csv_data,
+                        file_name="modelo_carga_pgi.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
                 
             st.write("---")
             st.markdown("<strong>2. Selecione o Arquivo Preenchido</strong>", unsafe_allow_html=True)
@@ -1140,19 +1158,28 @@ else:
             
             if uploaded_excel:
                 try:
+                    df_upload = None
                     if uploaded_excel.name.endswith(".csv"):
-                        df_upload = pd.read_csv(uploaded_excel)
+                        try:
+                            df_upload = pd.read_csv(uploaded_excel, sep=";")
+                            if "ID_PGI" not in [str(c).strip().upper() for c in df_upload.columns]:
+                                uploaded_excel.seek(0)
+                                df_upload = pd.read_csv(uploaded_excel, sep=",")
+                        except Exception:
+                            uploaded_excel.seek(0)
+                            df_upload = pd.read_csv(uploaded_excel)
                     else:
+                        if not tem_openpyxl:
+                            st.error("⚠️ O pacote **openpyxl** ainda não está instalado no seu Streamlit Cloud. Adicione `openpyxl` no seu arquivo `requirements.txt` do GitHub ou salve a planilha como **.csv (separado por ponto e vírgula)** e envie novamente.")
+                            st.stop()
                         df_upload = pd.read_excel(uploaded_excel)
                         
                     # Validação inicial da coluna obrigatória
-                    colunas_presentes = [str(c).strip() for c in df_upload.columns]
                     col_id_nome = next((c for c in df_upload.columns if str(c).strip().upper() == "ID_PGI"), None)
                     
                     if not col_id_nome:
                         st.error("❌ O arquivo não possui a coluna obrigatória **ID_PGI**.")
                     else:
-                        # Padroniza nomes de colunas
                         df_upload.rename(columns={col_id_nome: "ID_PGI"}, inplace=True)
                         
                         # Limpeza e remoção de nulos no ID
@@ -1160,19 +1187,18 @@ else:
                         df_upload["ID_PGI"] = df_upload["ID_PGI"].astype(str).str.replace(".0", "", regex=False).str.strip()
                         df_upload = df_upload[df_upload["ID_PGI"] != ""]
                         
-                        # Checagem de duplicidade interna no próprio arquivo
+                        # Checagem de duplicidade interna no arquivo
                         duplicados_arquivo = df_upload[df_upload.duplicated(subset=["ID_PGI"], keep=False)]
                         if not duplicados_arquivo.empty:
                             ids_dup_list = list(duplicados_arquivo["ID_PGI"].unique())
-                            st.warning(f"⚠️ Atenção: O arquivo contém IDs duplicados internamente: {ids_dup_list}. Apenas a última ocorrência de cada um será considerada.")
+                            st.warning(f"⚠️ Atenção: O arquivo continha IDs duplicados internamente: {ids_dup_list}. Apenas a última ocorrência de cada um será considerada.")
                             df_upload = df_upload.drop_duplicates(subset=["ID_PGI"], keep="last")
                             
-                        st.success(f"✔️ Planilha validada com sucesso! Total de **{len(df_upload)}** registros prontos para análise.")
+                        st.success(f"✔️ Planilha validada com sucesso! Total de **{len(df_upload)}** registros prontos para carga.")
                         
                         st.write("<strong>Pré-visualização dos Dados:</strong>", unsafe_allow_html=True)
                         st.dataframe(df_upload.head(5), use_container_width=True)
                         
-                        # Opções da regra de negócio para a integridade dos IDs
                         modo_carga = st.radio(
                             "Escolha a Regra de Carga:",
                             [

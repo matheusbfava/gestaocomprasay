@@ -172,7 +172,6 @@ def parse_bool_safe(val):
     return val_str in ["true", "t", "1", "sim", "yes", "ok"]
 
 def formatar_cnpj(cnpj_input: str) -> str:
-    """Formata sequência de 14 dígitos em formato CNPJ padrão."""
     digits = re.sub(r"\D", "", str(cnpj_input))
     if len(digits) == 14:
         return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
@@ -180,10 +179,6 @@ def formatar_cnpj(cnpj_input: str) -> str:
 
 @st.cache_data(ttl=86400)
 def consultar_cnpj_receita(cnpj_input: str) -> str:
-    """
-    Consulta automática de CNPJ via API pública (BrasilAPI com fallback para ReceitaWS).
-    Retorna a Razão Social oficial da empresa.
-    """
     if not cnpj_input:
         return ""
     
@@ -191,7 +186,6 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     if len(digits) != 14:
         return ""
     
-    # Tentativa 1: BrasilAPI
     try:
         url_brasil = f"https://brasilapi.com.br/api/cnpj/v1/{digits}"
         r = requests.get(url_brasil, timeout=4)
@@ -203,7 +197,6 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     except Exception:
         pass
         
-    # Tentativa 2: ReceitaWS
     try:
         url_ws = f"https://receitaws.com.br/v1/cnpj/{digits}"
         r2 = requests.get(url_ws, timeout=4)
@@ -218,10 +211,9 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     return ""
 
 
-# Estilização CSS institucional da Marca A.Yoshii
+# Estilização CSS institucional
 st.markdown("""
     <style>
-    /* Barra Lateral */
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
@@ -245,7 +237,6 @@ st.markdown("""
         background-color: #E05D00 !important;
     }
     
-    /* Cabeçalho Corporativo */
     .title-container {
         padding: 8px 16px !important;
         background-color: #00205B;
@@ -277,7 +268,6 @@ st.markdown("""
         margin-top: 2px;
     }
     
-    /* Cards de Métricas Customizados */
     .metric-card-custom {
         background-color: #FFFFFF;
         border-top: 3px solid #00205B;
@@ -347,7 +337,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÃO DE RENDERIZAÇÃO DE HTML ROBUSTA ---
+# --- FUNÇÃO DE RENDERIZAÇÃO DE HTML ---
 def render_html(html_str):
     clean_html = "".join([line.strip() for line in html_str.split("\n")])
     st.markdown(clean_html, unsafe_allow_html=True)
@@ -452,31 +442,23 @@ if not st.session_state.logged_in and auth_param:
 
 # --- LÓGICA DE DUPLICAÇÃO DE PROCESSO COM SUFIXO (- 1, - 2, ...) ---
 def duplicar_processo_fornecedor(id_origem: str):
-    """
-    Duplica o processo respeitando a regra:
-    - Se for a primeira duplicação: o original '43654' vira '43654 - 1' e o novo '43654 - 2'.
-    - Se já tiver sufixo: descobre o maior sufixo e cria o próximo '43654 - n'.
-    """
     if not sb_client:
         return False, "Conexão com o banco de dados indisponível."
         
     id_origem_str = str(id_origem).strip()
     
-    # Extrai o ID base
     match_sufixo = re.match(r"^(.*?)\s*-\s*(\d+)$", id_origem_str)
     if match_sufixo:
         base_id = match_sufixo.group(1).strip()
     else:
         base_id = id_origem_str
 
-    # Busca todos os processos que pertencem a essa família de IDs
     todos_processos = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
     item_original = next((x for x in todos_processos if str(x.get("ID_PGI", "")).strip() == id_origem_str), None)
     
     if not item_original:
         return False, f"Processo {id_origem_str} não localizado para duplicação."
 
-    # Identifica todos os sufixos numéricos existentes para este base_id
     sufixos_existentes = []
     tem_base_pura = False
     
@@ -490,31 +472,25 @@ def duplicar_processo_fornecedor(id_origem: str):
                 sufixos_existentes.append(int(m.group(1)))
 
     novo_payload = dict(item_original)
-    # Remove identificador de banco caso exista para inserção limpa
     novo_payload.pop("id", None)
     novo_payload.pop("ID", None)
     novo_payload.pop("created_at", None)
-    # Zera os dados de fornecedor para o novo parceiro
     novo_payload["cnpj_fornecedor"] = ""
     novo_payload["razao_social"] = ""
     novo_payload["concluido"] = False
 
     try:
         if tem_base_pura and not sufixos_existentes:
-            # 1ª Duplicação: Original vira 'base_id - 1' e Novo vira 'base_id - 2'
             id_novo_original = f"{base_id} - 1"
             id_novo_clone = f"{base_id} - 2"
             
-            # Renomeia o original no banco
             sb_client.update_list_item(base_id, {"ID_PGI": id_novo_original}, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
             
-            # Insere o novo
             novo_payload["ID_PGI"] = id_novo_clone
             sb_client.insert_list_item(novo_payload, list_name="PGI_GestaoCotacoes")
             
             return True, f"✔️ Processo {base_id} desmembrado com sucesso em {id_novo_original} e {id_novo_clone}!"
         else:
-            # Duplicações subsequentes: acha o maior N e acrescenta 1
             maior_n = max(sufixos_existentes) if sufixos_existentes else 1
             proximo_n = maior_n + 1
             id_novo_clone = f"{base_id} - {proximo_n}"
@@ -642,7 +618,7 @@ def carregar_obras():
     obras = sorted(list(set(obras)))
     return obras if obras else LISTA_FALLBACK_OBRAS
 
-# --- CARREGAMENTO DINÂMICO DE DADOS (COM CNPJ E RAZÃO SOCIAL) ---
+# --- CARREGAMENTO DINÂMICO DE DADOS ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -966,7 +942,7 @@ else:
             )
 
         if not df_filtered.empty:
-            # Lista oficial de colunas (incluindo CNPJ e Razão Social)
+            # Lista oficial de colunas
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
                 "cnpj_fornecedor", "razao_social",
@@ -983,7 +959,7 @@ else:
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO) COM AÇÕES: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
+            # MODO 1: TABELA VISUAL (PADRÃO)
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
@@ -1009,7 +985,7 @@ else:
                 for index, row in df_filtered.iterrows():
                     table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                     
-                    # 3 ÍCONES DE AÇÃO POR LINHA: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
+                    # 3 ÍCONES DE AÇÃO: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
                     table_html += f"""
                     <td style='padding: 6px 10px; text-align: center; white-space: nowrap; border: 1px solid #F4F6F9;'>
                         <a href='?action=edit&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 4px; display: inline-block;' title='Editar Registro na Planilha'>✏️</a>
@@ -1028,7 +1004,6 @@ else:
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{row['cotacao']}</td>"
                     
-                    # Colunas de Fornecedor
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{cnpj_fmt}</td>"
                     table_html += f"<td style='padding: 8px 12px; color: #00205B; border: 1px solid #F4F6F9;'>{razao_fmt}</td>"
                     
@@ -1056,7 +1031,7 @@ else:
                 st.markdown(table_html, unsafe_allow_html=True)
 
             # ==================================================================
-            # MODO 2: PLANILHA INTERATIVA (EXCEL) COM CONSULTA AUTOMÁTICA DE CNPJ
+            # MODO 2: PLANILHA INTERATIVA (EXCEL)
             # ==================================================================
             else:
                 col_info_plan, col_btn_autofit = st.columns([3, 1.2])
@@ -1089,9 +1064,8 @@ else:
                     "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width=w_m),
                     "cotacao": st.column_config.TextColumn("Escopo / Cotação", width=w_l),
                     
-                    # Fornecedor: CNPJ editável e Razão Social preenchida automaticamente (somente leitura)
-                    "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas números ou formatado. A Razão Social será consultada na Receita.", width=w_m),
-                    "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente pelo sistema", disabled=True, width=w_l),
+                    "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas números ou formatado.", width=w_m),
+                    "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente", disabled=True, width=w_l),
                     
                     "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width=w_s),
                     "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width=w_s),
@@ -1144,7 +1118,6 @@ else:
                                 if diff_dict:
                                     pgi_alvo = str(row_edit["ID_PGI"]).strip()
                                     
-                                    # Se o CNPJ foi alterado ou preenchido, consulta automaticamente a Razão Social
                                     if "cnpj_fornecedor" in diff_dict:
                                         cnpj_novo = diff_dict["cnpj_fornecedor"]
                                         cnpj_limpo = re.sub(r"\D", "", cnpj_novo)
@@ -1215,7 +1188,6 @@ else:
                             st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
                         else:
                             try:
-                                # Consulta CNPJ se fornecido
                                 razao_social_api = ""
                                 cnpj_formatado = ""
                                 if new_cnpj:
@@ -1388,7 +1360,6 @@ else:
                                     cnpj_raw = str(row_u.get("cnpj_fornecedor", "")).strip()
                                     razao_raw = str(row_u.get("razao_social", "")).strip().upper()
                                     
-                                    # Consulta automática se houver CNPJ e não houver Razão Social
                                     if cnpj_raw and not razao_raw:
                                         cnpj_clean = re.sub(r"\D", "", cnpj_raw)
                                         if len(cnpj_clean) == 14:
@@ -1556,5 +1527,123 @@ else:
                 u_perfil = str(row_u.get("perfil", "comprador")).title()
                 u_ativo = row_u.get("ativo", True)
                 
-                status_tag = '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745;">ATIVO</span>' if u_ativo else '<span style="background-color:#F8D7DA; color:#721C24; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #721C24;">INATIVO</span>'
-                perfil_tag = f'<span style="color
+                # Tag de Perfil Segura
+                if u_perfil.lower() == "administrador":
+                    perfil_tag = f'<span style="color:#FF6F00; font-weight:800;">👑 {u_perfil}</span>'
+                else:
+                    perfil_tag = f'<span style="color:#00205B; font-weight:600;">💼 {u_perfil}</span>'
+
+                # Tag de Status Segura
+                if u_ativo:
+                    status_tag = '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745;">ATIVO</span>'
+                else:
+                    status_tag = '<span style="background-color:#F8D7DA; color:#721C24; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #721C24;">INATIVO</span>'
+
+                u_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
+                u_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B;'>{u_username}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{u_nome}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{perfil_tag}</td>"
+                u_html += f"<td style='padding: 8px 12px;'>{status_tag}</td>"
+                u_html += "</tr>"
+
+            u_html += "</tbody></table></div>"
+            st.markdown(u_html, unsafe_allow_html=True)
+
+        tab_cad, tab_edit = st.tabs(["➕ Cadastrar Novo Usuário", "✏️ Editar Usuário Existente"])
+
+        with tab_cad:
+            with st.form("form_novo_usuario"):
+                st.markdown("<strong style='color:#00205B;'>Formulário de Cadastro de Novo Usuário</strong>", unsafe_allow_html=True)
+                col_u1, col_u2 = st.columns(2)
+                with col_u1:
+                    new_u_username = st.text_input("Login / Username (ex: matheus.fava)", placeholder="Digite o login...").strip().lower()
+                    new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
+                with col_u2:
+                    new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
+                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e fluxos.")
+                    new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
+
+                submit_new_u = st.form_submit_button("💾 Salvar Usuário")
+
+                if submit_new_u:
+                    if not new_u_username or not new_u_nome or not new_u_senha:
+                        st.error("❌ Username, Nome Completo e Senha são obrigatórios.")
+                    else:
+                        existing_usernames = [str(x.get("username", "")).lower() for x in lista_usuarios_atual]
+                        if new_u_username in existing_usernames:
+                            st.error(f"❌ O username '{new_u_username}' já existe no sistema.")
+                        elif not sb_client:
+                            st.error("❌ Conexão indisponível.")
+                        else:
+                            user_payload = {
+                                "username": new_u_username,
+                                "nome": new_u_nome,
+                                "senha": new_u_senha,
+                                "perfil": new_u_perfil,
+                                "ativo": new_u_ativo
+                            }
+                            try:
+                                sb_client.insert_list_item(user_payload, list_name="usuarios")
+                                st.cache_data.clear()
+                                st.success(f"✔️ Usuário '{new_u_username}' cadastrado com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Erro ao salvar usuário: {str(e)}")
+
+        with tab_edit:
+            if not lista_usuarios_atual:
+                st.info("Nenhum usuário cadastrado para edição.")
+            else:
+                user_options = [f"{u.get('username')} - {u.get('nome')} ({u.get('perfil')})" for u in lista_usuarios_atual]
+                selected_user_str = st.selectbox("Selecione o Usuário para Editar", user_options)
+                
+                if selected_user_str:
+                    sel_username = selected_user_str.split(" - ")[0]
+                    selected_u_dict = next((u for u in lista_usuarios_atual if str(u.get("username")) == str(sel_username)), {})
+
+                    with st.form("form_editar_usuario"):
+                        render_html(f"""
+                            <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #00205B; margin-bottom: 12px; font-size: 13px;">
+                                <strong>Editando Acesso:</strong> {selected_u_dict.get('username')} ({selected_u_dict.get('nome')})
+                            </div>
+                        """)
+                        col_eu1, col_eu2 = st.columns(2)
+                        with col_eu1:
+                            edit_u_nome = st.text_input("Nome Completo", value=selected_u_dict.get("nome", ""))
+                            edit_u_senha = st.text_input("Senha de Acesso", value=selected_u_dict.get("senha", ""), type="password")
+                        with col_eu2:
+                            current_perfil = selected_u_dict.get("perfil", "comprador")
+                            edit_u_perfil = st.selectbox(
+                                "Perfil de Acesso", 
+                                ["comprador", "administrador"], 
+                                index=0 if current_perfil == "comprador" else 1
+                            )
+                            edit_u_ativo = st.checkbox("Conta Ativa", value=bool(selected_u_dict.get("ativo", True)))
+
+                        submit_edit_u = st.form_submit_button("💾 Salvar Alterações")
+
+                        if submit_edit_u:
+                            if not edit_u_nome or not edit_u_senha:
+                                st.error("❌ Nome e Senha são campos obrigatórios.")
+                            elif not sb_client:
+                                st.error("❌ Conexão indisponível.")
+                            else:
+                                updated_u_payload = {
+                                    "username": sel_username,
+                                    "nome": edit_u_nome,
+                                    "senha": edit_u_senha,
+                                    "perfil": edit_u_perfil,
+                                    "ativo": edit_u_ativo
+                                }
+                                try:
+                                    sb_client.update_list_item(
+                                        item_id=sel_username, 
+                                        item_data=updated_u_payload, 
+                                        list_name="usuarios", 
+                                        id_column="username"
+                                    )
+                                    st.cache_data.clear()
+                                    st.success(f"✔️ Dados de '{sel_username}' atualizados com sucesso!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao atualizar usuário: {str(e)}")

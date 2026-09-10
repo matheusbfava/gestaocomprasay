@@ -3,15 +3,12 @@ import pandas as pd
 import numpy as np
 import sys
 import os
+import requests
+import json
 
 # Adiciona o diretório atual ao path para garantir importação do cliente Supabase
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import requests
-import json
-
-import json
-import requests
 
 class SupabaseClient:
     """
@@ -58,7 +55,7 @@ class SupabaseClient:
                 response = self.client.table(list_name).select("*").execute()
                 return response.data if response.data else []
             except Exception:
-                pass # Fallback para REST API
+                pass  # Fallback para REST API
                 
         endpoint = f"{self.rest_url}/{list_name}?select=*"
         try:
@@ -135,7 +132,6 @@ class SupabaseClient:
             raise Exception(f"Erro ao excluir no Supabase ({list_name}): {str(e)}")
 
 
-
 # Configuração da página e visual premium do Grupo A.Yoshii
 st.set_page_config(
     page_title="PGI - Gestão de Cotações (Supabase Live)",
@@ -157,24 +153,6 @@ def format_buyer_name(name_str):
     first = parts[0]
     last = parts[-1]
     return f"{first} {last[0].upper()}."
-
-# --- FUNÇÃO DE CONVERSÃO NUMÉRICA SEGURA PARA MOEDA E VALORES ---
-def parse_float_safe(val):
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    val_str = str(val).replace("R$", "").replace("r$", "").replace(" ", "").replace("\xa0", "").strip()
-    if not val_str:
-        return 0.0
-    if "," in val_str and "." in val_str:
-        val_str = val_str.replace(".", "").replace(",", ".")
-    elif "," in val_str:
-        val_str = val_str.replace(",", ".")
-    try:
-        return float(val_str)
-    except ValueError:
-        return 0.0
 
 
 # Estilização CSS customizada para atender rigidamente ao Manual de Aplicação da Marca
@@ -433,7 +411,7 @@ def login(username, password):
         else:
             st.error("❌ Senha incorreta.")
     else:
-        # Bypass emergencial de segurança se a tabela no Supabase estiver em branco ou inacessível no primeiro setup
+        # Bypass emergencial de segurança
         if username_clean == "matheus.fava" and password == "ayoshii1050":
             st.session_state.logged_in = True
             st.session_state.user = "Matheus Fava"
@@ -462,7 +440,7 @@ def logout():
 @st.cache_data(ttl=300)
 def carregar_grupos_insumo():
     """
-    Busca os nomes dos grupos de insumo direto do Supabase (aba dSUPRI_GruposInsumo / NomeGrupo).
+    Busca os nomes dos grupos de insumo direto do Supabase (tabela dSUPRI_GruposInsumo).
     """
     if sb_client:
         try:
@@ -480,7 +458,7 @@ def carregar_grupos_insumo():
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
-# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (COM CACHE) ---
+# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (SEM VALORES FINANCEIROS) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -510,9 +488,7 @@ def carregar_dados():
                     "ass_digital": str(item.get("ass_digital", "aguardando")),
                     "credenciamento": str(item.get("credenciamento", "N/A")),
                     "comunicar": str(item.get("comunicar", "N/A")),
-                    "savings": str(item.get("savings", "0.00")),
-                    "aud_pasta": str(item.get("aud_pasta", "aguardando")),
-                    "valor_fechado": str(item.get("valor_fechado", "0.00"))
+                    "aud_pasta": str(item.get("aud_pasta", "aguardando"))
                 })
             return dados_mapeados
         except Exception as e:
@@ -535,12 +511,12 @@ def excluir_registro(pgi_id):
         st.error("❌ Supabase desconectado. Operação cancelada.")
         return False
 
-# --- HELPER DE BADGES DE STATUS PARA TABELA SCROLLABLE ---
+# --- HELPER DE BADGES DE STATUS PARA TABELA ---
 def get_html_status_badge(status):
     status_clean = str(status).strip()
-    if status_clean == "OK":
+    if status_clean.upper() == "OK":
         return '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745; display:inline-block;">OK</span>'
-    elif status_clean == "N/A":
+    elif status_clean.upper() == "N/A":
         return '<span style="background-color:#F4F6F9; color:#8C8C8C; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #8C8C8C; display:inline-block;">N/A</span>'
     elif status_clean.isdigit():
         return f'<span style="background-color:#EAF4FF; color:#00205B; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #00205B; display:inline-block;">{status_clean}</span>'
@@ -676,19 +652,16 @@ else:
 
     # PAGE 1: DASHBOARD GERAL
     if st.session_state.menu_option == "Dashboard Geral":
-        st.markdown("<h3 class='styled-table-title'>📊 Indicadores de Performance (Supabase Real)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
         
         df_calc = df_current.copy()
         if not df_calc.empty:
-            df_calc["valor_fechado_num"] = df_calc["valor_fechado"].apply(parse_float_safe)
-            df_calc["savings_num"] = df_calc["savings"].apply(parse_float_safe)
-            
-            total_fechado_all = df_calc["valor_fechado_num"].sum()
-            total_savings_all = df_calc["savings_num"].sum()
-            media_savings_all = df_calc["savings_num"].mean()
-            taxa_economia_all = (total_savings_all / (total_fechado_all + total_savings_all)) * 100 if (total_fechado_all + total_savings_all) > 0 else 0
+            total_processos = len(df_calc)
+            total_novos = len(df_calc[df_calc["tipo"].astype(str).str.strip().str.lower() == "novo"])
+            total_aditivos = len(df_calc[df_calc["tipo"].astype(str).str.strip().str.lower() == "aditivo"])
+            total_auditadas = len(df_calc[df_calc["aud_pasta"].astype(str).str.strip().str.upper() == "OK"])
         else:
-            total_fechado_all = total_savings_all = media_savings_all = taxa_economia_all = 0
+            total_processos = total_novos = total_aditivos = total_auditadas = 0
         
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         
@@ -696,36 +669,34 @@ else:
             render_html(f"""
                 <div class="metric-card-custom">
                     <div class="metric-label">Total de Processos</div>
-                    <div class="metric-value">{len(df_calc)}</div>
+                    <div class="metric-value">{total_processos}</div>
                 </div>
             """)
         with col_m2:
-            val_f = f"R$ {total_fechado_all:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             render_html(f"""
                 <div class="metric-card-custom">
-                    <div class="metric-label">Valor Total Fechado</div>
-                    <div class="metric-value">{val_f}</div>
+                    <div class="metric-label">Processos Novos</div>
+                    <div class="metric-value">{total_novos}</div>
                 </div>
             """)
         with col_m3:
-            val_s = f"R$ {total_savings_all:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             render_html(f"""
                 <div class="metric-card-custom orange-border">
-                    <div class="metric-label">Total de Savings Gerados</div>
-                    <div class="metric-value" style="color: #FF6F00;">{val_s}</div>
+                    <div class="metric-label">Aditivos Contratuais</div>
+                    <div class="metric-value" style="color: #FF6F00;">{total_aditivos}</div>
                 </div>
             """)
         with col_m4:
             render_html(f"""
                 <div class="metric-card-custom">
-                    <div class="metric-label">Taxa Média de Economia</div>
-                    <div class="metric-value">{taxa_economia_all:.2f}%</div>
+                    <div class="metric-label">Pastas Auditadas (OK)</div>
+                    <div class="metric-value" style="color: #28A745;">{total_auditadas}</div>
                 </div>
             """)
         
         # --- SEÇÃO DE FILTROS AVANÇADOS ---
         with st.expander("🔍 Filtros de Pesquisa por Coluna (Modo Contém / Pesquisa Parcial)", expanded=False):
-            st.info("Digite ou selecione termos para pesquisar em qualquer uma das colunas. A tabela abaixo será filtrada para exibir apenas registros que **contêm** o texto selecionado (case-insensitive).")
+            st.info("Digite ou selecione termos para pesquisar em qualquer uma das colunas. A tabela abaixo exibirá apenas registros correspondentes.")
             
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
@@ -745,7 +716,7 @@ else:
 
             col_f5, col_f6, col_f7, col_f8 = st.columns(4)
             with col_f5:
-                f_cot = st.selectbox("Escopo de Cotação (Descritivo)", get_filter_options(df_current, "cotacao"), key="f_cot_sel")
+                f_cot = st.selectbox("Escopo de Cotação", get_filter_options(df_current, "cotacao"), key="f_cot_sel")
             with col_f6:
                 f_orc = st.selectbox("Solicitar Orçamento", get_filter_options(df_current, "orcamento"), key="f_orc_sel")
             with col_f7:
@@ -807,11 +778,11 @@ else:
                 "ID PGI", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                 "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
                 "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
-                "Credenc. GT", "Informar Eng.", "Savings", "Audit. Pasta", "Valor Fechado"
+                "Credenc. GT", "Informar Eng.", "Audit. Pasta"
             ]
             
             table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
-            table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2500px;'>"
+            table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2200px;'>"
             table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
             table_html += "<tr>"
             for h in headers:
@@ -822,9 +793,6 @@ else:
             
             for index, row in df_filtered.iterrows():
                 table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
-                
-                val_s = f"R$ {parse_float_safe(row['savings']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                val_f = f"R$ {parse_float_safe(row['valor_fechado']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 
                 table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['tipo']}</td>"
@@ -847,10 +815,7 @@ else:
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['ass_digital'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['credenciamento'])}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['comunicar'])}</td>"
-                
-                table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{val_s}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['aud_pasta'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #00205B; border: 1px solid #F4F6F9;'>{val_f}</td>"
                 
                 table_html += "</tr>"
             
@@ -913,9 +878,7 @@ else:
                                 "ass_digital": "aguardando",
                                 "credenciamento": "N/A",
                                 "comunicar": "N/A",
-                                "savings": "0.00",
-                                "aud_pasta": "aguardando",
-                                "valor_fechado": "0.00"
+                                "aud_pasta": "aguardando"
                             }
                             sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
@@ -967,8 +930,6 @@ else:
                         edit_dt_emissao = st.text_input("Data Emissão (DT_EMISSAO)", value=str(item.get("DT_EMISSAO", "")))
                         edit_grupointerno = st.text_input("Grupo Interno", value=str(item.get("grupointerno", "")))
                         edit_cotacao = st.text_input("Escopo de Cotação", value=item["cotacao"])
-                        edit_valor = st.number_input("Valor Fechado (R$)", value=parse_float_safe(item["valor_fechado"]), step=100.0, format="%.2f")
-                        edit_savings = st.number_input("Savings (R$)", value=parse_float_safe(item["savings"]), step=100.0, format="%.2f")
                         
                     with col_e2:
                         st.markdown("<strong style='color:#00205B;'>Validação & Compliance</strong>", unsafe_allow_html=True)
@@ -1027,9 +988,7 @@ else:
                             "ass_digital": str(edit_ass),
                             "credenciamento": str(edit_cred),
                             "comunicar": str(edit_comunicar),
-                            "savings": f"{edit_savings:.2f}",
-                            "aud_pasta": str(edit_aud),
-                            "valor_fechado": f"{edit_valor:.2f}"
+                            "aud_pasta": str(edit_aud)
                         }
                         
                         if not sb_client:
@@ -1256,7 +1215,7 @@ else:
         render_html("""
         <div class="info-card">
             <h4>📍 Nomes das Tabelas Ativas no Supabase:</h4>
-            <p>1. <code>PGI_GestaoCotacoes</code> (Armazena as 21 colunas de cotações e o ID_PGI como Chave Primária)</p>
+            <p>1. <code>PGI_GestaoCotacoes</code> (Armazena as colunas de acompanhamento de cotações e o ID_PGI como Chave Primária)</p>
             <p>2. <code>dSUPRI_GruposInsumo</code> (Armazena os nomes dos grupos de insumo)</p>
             <p>3. <code>usuarios</code> (Armazena os logins, nomes, senhas, perfis e status de ativação)</p>
         </div>

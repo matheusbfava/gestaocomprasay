@@ -6,6 +6,7 @@ import os
 import requests
 import json
 import io
+import re
 
 # Adiciona o diretório atual ao path para garantir importação do cliente
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -140,7 +141,7 @@ class SupabaseClient:
             raise Exception(f"Erro ao excluir registro ({list_name}): {str(e)}")
 
 
-# Configuração oficial do Grupo A.Yoshii
+# Configuração oficial da página
 st.set_page_config(
     page_title="PGI - Gestão de Suprimentos | A.Yoshii",
     page_icon="💼",
@@ -170,11 +171,57 @@ def parse_bool_safe(val):
     val_str = str(val).strip().lower()
     return val_str in ["true", "t", "1", "sim", "yes", "ok"]
 
+def formatar_cnpj(cnpj_input: str) -> str:
+    """Formata sequência de 14 dígitos em formato CNPJ padrão."""
+    digits = re.sub(r"\D", "", str(cnpj_input))
+    if len(digits) == 14:
+        return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
+    return str(cnpj_input).strip()
+
+@st.cache_data(ttl=86400)
+def consultar_cnpj_receita(cnpj_input: str) -> str:
+    """
+    Consulta automática de CNPJ via API pública (BrasilAPI com fallback para ReceitaWS).
+    Retorna a Razão Social oficial da empresa.
+    """
+    if not cnpj_input:
+        return ""
+    
+    digits = re.sub(r"\D", "", str(cnpj_input))
+    if len(digits) != 14:
+        return ""
+    
+    # Tentativa 1: BrasilAPI
+    try:
+        url_brasil = f"https://brasilapi.com.br/api/cnpj/v1/{digits}"
+        r = requests.get(url_brasil, timeout=4)
+        if r.status_code == 200:
+            data = r.json()
+            razao = data.get("razao_social", "")
+            if razao:
+                return str(razao).strip().upper()
+    except Exception:
+        pass
+        
+    # Tentativa 2: ReceitaWS
+    try:
+        url_ws = f"https://receitaws.com.br/v1/cnpj/{digits}"
+        r2 = requests.get(url_ws, timeout=4)
+        if r2.status_code == 200:
+            data2 = r2.json()
+            razao2 = data2.get("nome", "")
+            if razao2:
+                return str(razao2).strip().upper()
+    except Exception:
+        pass
+        
+    return ""
+
 
 # Estilização CSS institucional da Marca A.Yoshii
 st.markdown("""
     <style>
-    /* Barra Lateral (Sidebar) */
+    /* Barra Lateral */
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
@@ -258,7 +305,6 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
     
-    /* Cards Informativos */
     .info-card {
         background-color: #F4F6F9;
         border-left: 5px solid #00205B;
@@ -388,7 +434,7 @@ def carregar_usuarios():
             pass
     return []
 
-# --- AUTO-RECUPERAÇÃO DE SESSÃO CONTRA LOGOUT INDESEJADO ---
+# --- AUTO-RECUPERAÇÃO DE SESSÃO (PROTEÇÃO CONTRA LOGOUT) ---
 auth_param = st.query_params.get("auth", None)
 if not st.session_state.logged_in and auth_param:
     users_list_init = carregar_usuarios()
@@ -404,21 +450,104 @@ if not st.session_state.logged_in and auth_param:
         st.session_state.username = str(auth_param).lower()
         st.session_state.user_perfil = "administrador"
 
-# --- CAPTURA DE AÇÕES RÁPIDAS (ÍCONES DE LINHA: ✏️ e 🗑️) ---
+# --- LÓGICA DE DUPLICAÇÃO DE PROCESSO COM SUFIXO (- 1, - 2, ...) ---
+def duplicar_processo_fornecedor(id_origem: str):
+    """
+    Duplica o processo respeitando a regra:
+    - Se for a primeira duplicação: o original '43654' vira '43654 - 1' e o novo '43654 - 2'.
+    - Se já tiver sufixo: descobre o maior sufixo e cria o próximo '43654 - n'.
+    """
+    if not sb_client:
+        return False, "Conexão com o banco de dados indisponível."
+        
+    id_origem_str = str(id_origem).strip()
+    
+    # Extrai o ID base
+    match_sufixo = re.match(r"^(.*?)\s*-\s*(\d+)$", id_origem_str)
+    if match_sufixo:
+        base_id = match_sufixo.group(1).strip()
+    else:
+        base_id = id_origem_str
+
+    # Busca todos os processos que pertencem a essa família de IDs
+    todos_processos = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
+    item_original = next((x for x in todos_processos if str(x.get("ID_PGI", "")).strip() == id_origem_str), None)
+    
+    if not item_original:
+        return False, f"Processo {id_origem_str} não localizado para duplicação."
+
+    # Identifica todos os sufixos numéricos existentes para este base_id
+    sufixos_existentes = []
+    tem_base_pura = False
+    
+    for item in todos_processos:
+        id_item = str(item.get("ID_PGI", "")).strip()
+        if id_item == base_id:
+            tem_base_pura = True
+        else:
+            m = re.match(rf"^{re.escape(base_id)}\s*-\s*(\d+)$", id_item)
+            if m:
+                sufixos_existentes.append(int(m.group(1)))
+
+    novo_payload = dict(item_original)
+    # Remove identificador de banco caso exista para inserção limpa
+    novo_payload.pop("id", None)
+    novo_payload.pop("ID", None)
+    novo_payload.pop("created_at", None)
+    # Zera os dados de fornecedor para o novo parceiro
+    novo_payload["cnpj_fornecedor"] = ""
+    novo_payload["razao_social"] = ""
+    novo_payload["concluido"] = False
+
+    try:
+        if tem_base_pura and not sufixos_existentes:
+            # 1ª Duplicação: Original vira 'base_id - 1' e Novo vira 'base_id - 2'
+            id_novo_original = f"{base_id} - 1"
+            id_novo_clone = f"{base_id} - 2"
+            
+            # Renomeia o original no banco
+            sb_client.update_list_item(base_id, {"ID_PGI": id_novo_original}, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+            
+            # Insere o novo
+            novo_payload["ID_PGI"] = id_novo_clone
+            sb_client.insert_list_item(novo_payload, list_name="PGI_GestaoCotacoes")
+            
+            return True, f"✔️ Processo {base_id} desmembrado com sucesso em {id_novo_original} e {id_novo_clone}!"
+        else:
+            # Duplicações subsequentes: acha o maior N e acrescenta 1
+            maior_n = max(sufixos_existentes) if sufixos_existentes else 1
+            proximo_n = maior_n + 1
+            id_novo_clone = f"{base_id} - {proximo_n}"
+            
+            novo_payload["ID_PGI"] = id_novo_clone
+            sb_client.insert_list_item(novo_payload, list_name="PGI_GestaoCotacoes")
+            
+            return True, f"✔️ Novo desdobramento gerado com sucesso: {id_novo_clone}!"
+    except Exception as e:
+        return False, f"Erro ao duplicar no banco: {str(e)}"
+
+# --- CAPTURA DE AÇÕES RÁPIDAS (ÍCONES: ✏️, 📑 e 🗑️) ---
 if "action" in st.query_params and "id" in st.query_params:
     action_type = st.query_params.get("action")
     target_id = str(st.query_params.get("id")).strip()
     
-    # Mantém o auth ativo nos query_params para navegação limpa
     auth_keep = st.session_state.get("username", "user")
     st.query_params.clear()
     st.query_params["auth"] = auth_keep
     
     if action_type == "edit":
-        # Ativa o filtro direto para esse ID e muda para a planilha para edição inline rápida
         st.session_state["f_id_sel"] = target_id
         st.session_state["modo_visualizacao"] = "📝 Planilha Interativa (Excel)"
         st.session_state.menu_option = "Dashboard Geral"
+        st.rerun()
+    elif action_type == "dup":
+        with st.spinner(f"Desmembrando processo {target_id} para novo fornecedor..."):
+            sucesso, msg = duplicar_processo_fornecedor(target_id)
+            if sucesso:
+                st.cache_data.clear()
+                st.success(msg)
+            else:
+                st.error(msg)
         st.rerun()
     elif action_type == "del":
         st.session_state.confirm_delete_id = target_id
@@ -513,7 +642,7 @@ def carregar_obras():
     obras = sorted(list(set(obras)))
     return obras if obras else LISTA_FALLBACK_OBRAS
 
-# --- CARREGAMENTO DINÂMICO DE DADOS ---
+# --- CARREGAMENTO DINÂMICO DE DADOS (COM CNPJ E RAZÃO SOCIAL) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -531,6 +660,8 @@ def carregar_dados():
                     "grupoinsumo": str(item.get("grupoinsumo", "")),
                     "grupointerno": str(item.get("grupointerno", "")),
                     "cotacao": str(item.get("cotacao", item.get("Title", ""))),
+                    "cnpj_fornecedor": str(item.get("cnpj_fornecedor", "")).strip(),
+                    "razao_social": str(item.get("razao_social", "")).strip().upper(),
                     "due_dilligence": str(item.get("due_dilligence", "aguardando")),
                     "equalizacao": str(item.get("equalizacao", "aguardando")),
                     "orcamento": str(item.get("orcamento", "N/A")),
@@ -646,7 +777,7 @@ else:
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar (TELA DE GERENCIAMENTO DE REGISTROS REMOVIDA)
+    # Sidebar
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
@@ -693,7 +824,7 @@ else:
         if st.button("🚪 Sair do Aplicativo"):
             logout()
             
-    # Cabeçalho Limpo
+    # Cabeçalho Corporativo
     logo_header = get_logo_svg(theme="dark", width=120, height=25)
     render_html(f"""
         <div class="title-container">
@@ -777,7 +908,6 @@ else:
                 unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if str(v).strip()])
                 return ["Todos"] + unique_vals
 
-            # FILTRO DE STATUS
             st.markdown("<strong>Filtrar por Status do Processo:</strong>", unsafe_allow_html=True)
             status_filtro = st.radio(
                 "Filtrar por Status de Conclusão",
@@ -800,7 +930,7 @@ else:
 
             st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
             
-            # CORREÇÃO DO BOTÃO LIMPAR FILTROS: LIMPA DEFINITIVAMENTE AS CHAVES DA SESSÃO
+            # Limpeza completa de filtros
             if st.button("🔄 Limpar Filtros", use_container_width=False):
                 for k in ["f_id_sel", "f_comprador_sel", "f_grupo_sel", "f_obra_sel", "filtro_status_conclusao"]:
                     if k in st.session_state:
@@ -836,8 +966,10 @@ else:
             )
 
         if not df_filtered.empty:
+            # Lista oficial de colunas (incluindo CNPJ e Razão Social)
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
+                "cnpj_fornecedor", "razao_social",
                 "orcamento", "due_dilligence", "equalizacao", "validacao_eng",
                 "validacao_ger", "validacao_sup", "req_mega", "contr_mega",
                 "param_fiscal", "minuta", "ass_digital", "credenciamento",
@@ -846,23 +978,24 @@ else:
             
             for col in colunas_oficiais:
                 if col not in df_filtered.columns:
-                    df_filtered[col] = False if col == "concluido" else "N/A"
+                    df_filtered[col] = False if col == "concluido" else ""
                     
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO) COM ÍCONES PROTEGIDOS CONTRA LOGOUT
+            # MODO 1: TABELA VISUAL (PADRÃO) COM AÇÕES: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
                     "Ações", "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
-                    "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
+                    "CNPJ Fornecedor", "Razão Social (Receita Federal)",
+                    "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng.", "Valid. Gerente", "Valid. Suprimentos",
                     "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
-                    "Credenc. GT", "Informar Eng.", "Audit. Pasta", "Status Processo"
+                    "Credenc. GT", "Informar Eng.", "Audit. Pasta", "Status"
                 ]
                 
                 table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 6px;'>"
-                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2500px;'>"
+                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2750px;'>"
                 table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
                 table_html += "<tr>"
                 for h in headers:
@@ -876,13 +1009,17 @@ else:
                 for index, row in df_filtered.iterrows():
                     table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                     
-                    # LINKS PROTEGIDOS: INCLUEM '&auth=' PARA PREVENIR LOGOUT INDESEJADO NO NAVEGADOR
+                    # 3 ÍCONES DE AÇÃO POR LINHA: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
                     table_html += f"""
                     <td style='padding: 6px 10px; text-align: center; white-space: nowrap; border: 1px solid #F4F6F9;'>
-                        <a href='?action=edit&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 5px; display: inline-block;' title='Editar na Planilha Interativa'>✏️</a>
-                        <a href='?action=del&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FCE8E8; border: 1px solid #DC3545; border-radius: 4px; font-size: 12px; display: inline-block;' title='Excluir Registro'>🗑️</a>
+                        <a href='?action=edit&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 4px; display: inline-block;' title='Editar Registro na Planilha'>✏️</a>
+                        <a href='?action=dup&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FFF3E0; border: 1px solid #FF6F00; border-radius: 4px; font-size: 12px; margin-right: 4px; display: inline-block;' title='Duplicar Processo para Outro Fornecedor (Gera sufixo - n)'>📑</a>
+                        <a href='?action=del&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FCE8E8; border: 1px solid #DC3545; border-radius: 4px; font-size: 12px; display: inline-block;' title='Excluir Processo'>🗑️</a>
                     </td>
                     """
+                    
+                    cnpj_fmt = formatar_cnpj(row['cnpj_fornecedor']) if row['cnpj_fornecedor'] else '<span style="color:#A0AEC0;">Pendente</span>'
+                    razao_fmt = f"<b>{row['razao_social']}</b>" if row['razao_social'] else '<span style="color:#A0AEC0;">Não consultado</span>'
                     
                     table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
@@ -890,6 +1027,10 @@ else:
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['Comprador']}</td>"
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{row['cotacao']}</td>"
+                    
+                    # Colunas de Fornecedor
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{cnpj_fmt}</td>"
+                    table_html += f"<td style='padding: 8px 12px; color: #00205B; border: 1px solid #F4F6F9;'>{razao_fmt}</td>"
                     
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['orcamento'])}</td>"
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['due_dilligence'])}</td>"
@@ -915,14 +1056,14 @@ else:
                 st.markdown(table_html, unsafe_allow_html=True)
 
             # ==================================================================
-            # MODO 2: PLANILHA INTERATIVA (EXCEL)
+            # MODO 2: PLANILHA INTERATIVA (EXCEL) COM CONSULTA AUTOMÁTICA DE CNPJ
             # ==================================================================
             else:
                 col_info_plan, col_btn_autofit = st.columns([3, 1.2])
                 with col_info_plan:
                     render_html("""
                         <div style="background-color:#F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; font-size: 12px;">
-                            💡 <strong>Modo Planilha Ativo:</strong> Edite diretamente as células e marque o checkbox de <strong>Concluído</strong> para finalizar. Ao concluir, clique em <strong>"💾 Salvar Alterações da Planilha"</strong>.
+                            💡 <strong>Modo Planilha Ativo:</strong> Preencha apenas o <strong>CNPJ</strong> do fornecedor. Ao clicar em <strong>"Salvar Alterações"</strong>, a Razão Social oficial será preenchida automaticamente via consulta à Receita Federal.
                         </div>
                     """)
                 with col_btn_autofit:
@@ -947,6 +1088,11 @@ else:
                     "Comprador": st.column_config.SelectboxColumn("Comprador", options=opcoes_compradores, required=True, width=w_m),
                     "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width=w_m),
                     "cotacao": st.column_config.TextColumn("Escopo / Cotação", width=w_l),
+                    
+                    # Fornecedor: CNPJ editável e Razão Social preenchida automaticamente (somente leitura)
+                    "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas números ou formatado. A Razão Social será consultada na Receita.", width=w_m),
+                    "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente pelo sistema", disabled=True, width=w_l),
+                    
                     "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width=w_s),
                     "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width=w_s),
                     "equalizacao": st.column_config.SelectboxColumn("Equaliz.", options=OPCOES_STATUS, width=w_s),
@@ -978,10 +1124,11 @@ else:
                 with col_btn_salvar:
                     if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
                         alteracoes_detectadas = 0
-                        with st.spinner("Sincronizando alterações..."):
+                        with st.spinner("Consultando dados da Receita Federal e sincronizando com o banco..."):
                             for idx, row_edit in df_editado_usuario.iterrows():
                                 row_orig = df_edit_view.loc[idx]
                                 diff_dict = {}
+                                
                                 for col_name in colunas_oficiais:
                                     if col_name != "ID_PGI":
                                         val_orig = row_orig[col_name]
@@ -993,9 +1140,23 @@ else:
                                         else:
                                             if str(val_orig).strip() != str(val_edit).strip():
                                                 diff_dict[col_name] = str(val_edit).strip()
-                                            
+                                                
                                 if diff_dict:
                                     pgi_alvo = str(row_edit["ID_PGI"]).strip()
+                                    
+                                    # Se o CNPJ foi alterado ou preenchido, consulta automaticamente a Razão Social
+                                    if "cnpj_fornecedor" in diff_dict:
+                                        cnpj_novo = diff_dict["cnpj_fornecedor"]
+                                        cnpj_limpo = re.sub(r"\D", "", cnpj_novo)
+                                        if len(cnpj_limpo) == 14:
+                                            diff_dict["cnpj_fornecedor"] = formatar_cnpj(cnpj_limpo)
+                                            razao_encontrada = consultar_cnpj_receita(cnpj_limpo)
+                                            if razao_encontrada:
+                                                diff_dict["razao_social"] = razao_encontrada
+                                        elif not cnpj_novo:
+                                            diff_dict["cnpj_fornecedor"] = ""
+                                            diff_dict["razao_social"] = ""
+                                            
                                     try:
                                         sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
                                         alteracoes_detectadas += 1
@@ -1023,36 +1184,46 @@ else:
         with tab_novo_id:
             render_html("""
                 <div class="info-card">
-                    <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo.
+                    <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Caso o fechamento ocorra com mais de um fornecedor, utilize o botão <b>📑 Duplicar</b> diretamente na tabela do Dashboard para gerar os sufixos (ex: <code>43654 - 1</code>, <code>43654 - 2</code>).
                 </div>
             """)
             
             with st.form("new_record_form"):
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
-                    new_id = st.number_input("ID PGI (Número Único)", min_value=1, step=1, format="%d", value=49001)
+                    new_id = st.text_input("ID PGI (Somente o número ou código base)", value="49001")
                     new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
-                with col_f2:
                     new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
+                with col_f2:
                     new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
+                    new_cnpj = st.text_input("CNPJ do Fornecedor (Opcional)", placeholder="Digite apenas os números do CNPJ...")
                     
                 st.write("")
                 submit_new = st.form_submit_button("💾 Salvar Novo ID")
                 
                 if submit_new:
-                    id_str = str(int(new_id)).strip()
+                    id_str = str(new_id).strip()
                     existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
                     is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
                     
-                    if not new_id:
+                    if not id_str:
                         st.error("❌ O ID PGI é obrigatório.")
                     elif (id_str in existing_ids_cache) or is_duplicate_live:
-                        st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Não são permitidos IDs duplicados.")
+                        st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema!")
                     else:
                         if not sb_client:
                             st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
                         else:
                             try:
+                                # Consulta CNPJ se fornecido
+                                razao_social_api = ""
+                                cnpj_formatado = ""
+                                if new_cnpj:
+                                    cnpj_limpo = re.sub(r"\D", "", new_cnpj)
+                                    if len(cnpj_limpo) == 14:
+                                        cnpj_formatado = formatar_cnpj(cnpj_limpo)
+                                        razao_social_api = consultar_cnpj_receita(cnpj_limpo)
+                                
                                 sp_payload = {
                                     "ID_PGI": id_str,
                                     "obra": str(new_obra),
@@ -1060,6 +1231,8 @@ else:
                                     "Comprador": str(new_comprador),
                                     "grupoinsumo": "N/A",
                                     "cotacao": f"PROCESSO PGI {id_str}",
+                                    "cnpj_fornecedor": cnpj_formatado,
+                                    "razao_social": razao_social_api,
                                     "due_dilligence": "aguardando",
                                     "equalizacao": "aguardando",
                                     "orcamento": "aguardando",
@@ -1078,33 +1251,34 @@ else:
                                 }
                                 sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                                 st.cache_data.clear()
-                                st.success(f"✔️ Sucesso! Processo {id_str} ({new_obra}) cadastrado com sucesso.")
+                                st.success(f"✔️ Sucesso! Processo {id_str} cadastrado com sucesso.")
                                 st.session_state.menu_option = "Dashboard Geral"
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
-# --- SUB-ABA 2: IMPORTAÇÃO EM MASSA VIA EXCEL (.XLSX OU .CSV) ---
+        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA VIA EXCEL (.XLSX OU .CSV) ---
         with tab_import_excel:
             render_html("""
                 <div class="info-card">
-                    <strong>📁 Carga em Massa via Planilha:</strong> Faça upload de um arquivo <code>.xlsx</code> ou <code>.csv</code>. O sistema valida automaticamente os cabeçalhos e a integridade de cada ID PGI, garantindo que não ocorram duplicações acidentais.
+                    <strong>📁 Carga em Massa via Planilha:</strong> Faça upload de um arquivo <code>.xlsx</code> ou <code>.csv</code>. Se informar o <strong>CNPJ</strong> e deixar a Razão Social em branco, o sistema consultará automaticamente a Receita Federal.
                 </div>
             """)
             
-            # Gerador protegido de modelo para download
             col_mod1, col_mod2 = st.columns([2.5, 1.5])
             with col_mod1:
                 st.markdown("<strong>1. Baixe o Modelo Oficial de Carga</strong>", unsafe_allow_html=True)
-                st.caption("Utilize esta planilha pré-formatada para preencher os dados dos processos.")
+                st.caption("Planilha pré-formatada com as colunas padrão do sistema.")
             with col_mod2:
                 sample_data = [{
-                    "ID_PGI": 49001,
+                    "ID_PGI": "49001",
                     "obra": "ATMOS",
                     "tipo": "Novo",
                     "Comprador": "Bruno C.",
                     "grupoinsumo": "SRV - ALVENARIA",
                     "cotacao": "EXECUÇÃO DE ALVENARIA TORRE A",
+                    "cnpj_fornecedor": "00.000.000/0001-91",
+                    "razao_social": "BANCO DO BRASIL SA",
                     "orcamento": "OK",
                     "due_dilligence": "OK",
                     "equalizacao": "aguardando",
@@ -1123,7 +1297,6 @@ else:
                 }]
                 sample_df = pd.DataFrame(sample_data)
                 
-                # Geração com fallback seguro: tenta openpyxl (xlsx); se não houver, usa CSV
                 tem_openpyxl = False
                 try:
                     import openpyxl
@@ -1170,33 +1343,27 @@ else:
                             df_upload = pd.read_csv(uploaded_excel)
                     else:
                         if not tem_openpyxl:
-                            st.error("⚠️ O pacote **openpyxl** ainda não está instalado no seu Streamlit Cloud. Adicione `openpyxl` no seu arquivo `requirements.txt` do GitHub ou salve a planilha como **.csv (separado por ponto e vírgula)** e envie novamente.")
+                            st.error("⚠️ Pacote openpyxl não detectado para arquivos .xlsx. Salve como .csv e envie novamente.")
                             st.stop()
                         df_upload = pd.read_excel(uploaded_excel)
                         
-                    # Validação inicial da coluna obrigatória
                     col_id_nome = next((c for c in df_upload.columns if str(c).strip().upper() == "ID_PGI"), None)
                     
                     if not col_id_nome:
                         st.error("❌ O arquivo não possui a coluna obrigatória **ID_PGI**.")
                     else:
                         df_upload.rename(columns={col_id_nome: "ID_PGI"}, inplace=True)
-                        
-                        # Limpeza e remoção de nulos no ID
                         df_upload = df_upload.dropna(subset=["ID_PGI"])
                         df_upload["ID_PGI"] = df_upload["ID_PGI"].astype(str).str.replace(".0", "", regex=False).str.strip()
                         df_upload = df_upload[df_upload["ID_PGI"] != ""]
                         
-                        # Checagem de duplicidade interna no arquivo
                         duplicados_arquivo = df_upload[df_upload.duplicated(subset=["ID_PGI"], keep=False)]
                         if not duplicados_arquivo.empty:
                             ids_dup_list = list(duplicados_arquivo["ID_PGI"].unique())
-                            st.warning(f"⚠️ Atenção: O arquivo continha IDs duplicados internamente: {ids_dup_list}. Apenas a última ocorrência de cada um será considerada.")
+                            st.warning(f"⚠️ Atenção: O arquivo continha IDs duplicados internamente: {ids_dup_list}. Apenas a última ocorrência será mantida.")
                             df_upload = df_upload.drop_duplicates(subset=["ID_PGI"], keep="last")
                             
                         st.success(f"✔️ Planilha validada com sucesso! Total de **{len(df_upload)}** registros prontos para carga.")
-                        
-                        st.write("<strong>Pré-visualização dos Dados:</strong>", unsafe_allow_html=True)
                         st.dataframe(df_upload.head(5), use_container_width=True)
                         
                         modo_carga = st.radio(
@@ -1208,7 +1375,7 @@ else:
                         )
                         
                         if st.button("🚀 Processar e Salvar Carga no Sistema", type="primary", use_container_width=True):
-                            with st.spinner("Processando validação e gravando no banco..."):
+                            with st.spinner("Processando validações, consultas à Receita Federal e gravando no banco..."):
                                 ids_existentes_banco = set([str(x.get("ID_PGI", "")).strip() for x in db_data_current])
                                 
                                 lista_inserir = []
@@ -1218,6 +1385,16 @@ else:
                                 for _, row_u in df_upload.iterrows():
                                     pgi_id_val = str(row_u["ID_PGI"]).strip()
                                     
+                                    cnpj_raw = str(row_u.get("cnpj_fornecedor", "")).strip()
+                                    razao_raw = str(row_u.get("razao_social", "")).strip().upper()
+                                    
+                                    # Consulta automática se houver CNPJ e não houver Razão Social
+                                    if cnpj_raw and not razao_raw:
+                                        cnpj_clean = re.sub(r"\D", "", cnpj_raw)
+                                        if len(cnpj_clean) == 14:
+                                            cnpj_raw = formatar_cnpj(cnpj_clean)
+                                            razao_raw = consultar_cnpj_receita(cnpj_clean)
+                                    
                                     payload_linha = {
                                         "ID_PGI": pgi_id_val,
                                         "obra": str(row_u.get("obra", "N/A")).strip().upper(),
@@ -1226,6 +1403,8 @@ else:
                                         "grupoinsumo": str(row_u.get("grupoinsumo", "N/A")).strip(),
                                         "grupointerno": str(row_u.get("grupointerno", "")).strip(),
                                         "cotacao": str(row_u.get("cotacao", f"PROCESSO PGI {pgi_id_val}")).strip().upper(),
+                                        "cnpj_fornecedor": cnpj_raw,
+                                        "razao_social": razao_raw,
                                         "due_dilligence": str(row_u.get("due_dilligence", "aguardando")).strip(),
                                         "equalizacao": str(row_u.get("equalizacao", "aguardando")).strip(),
                                         "orcamento": str(row_u.get("orcamento", "N/A")).strip(),
@@ -1256,7 +1435,7 @@ else:
                                     sb_client.insert_batch(lista_inserir, list_name="PGI_GestaoCotacoes")
                                     
                                 st.cache_data.clear()
-                                st.success(f"🎉 **Carga Concluída com Sucesso!**\n- Novos Processos Inseridos: **{len(lista_inserir)}**\n- Registros Atualizados: **{total_atualizados}**\n- Registros Ignorados (Existentes): **{total_ignorados}**")
+                                st.success(f"🎉 **Carga Concluída com Sucesso!**\n- Novos Processos Inseridos: **{len(lista_inserir)}**\n- Registros Atualizados: **{total_atualizados}**\n- Registros Ignorados: **{total_ignorados}**")
                                 st.balloons()
                                 
                 except Exception as err_file:
@@ -1378,113 +1557,4 @@ else:
                 u_ativo = row_u.get("ativo", True)
                 
                 status_tag = '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745;">ATIVO</span>' if u_ativo else '<span style="background-color:#F8D7DA; color:#721C24; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #721C24;">INATIVO</span>'
-                perfil_tag = f'<span style="color:#FF6F00; font-weight:800;">👑 {u_perfil}</span>' if u_perfil.lower() == "administrador" else f'<span style="color:#00205B; font-weight:600;">💼 {u_perfil}</span>'
-
-                u_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
-                u_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B;'>{u_username}</td>"
-                u_html += f"<td style='padding: 8px 12px;'>{u_nome}</td>"
-                u_html += f"<td style='padding: 8px 12px;'>{perfil_tag}</td>"
-                u_html += f"<td style='padding: 8px 12px;'>{status_tag}</td>"
-                u_html += "</tr>"
-
-            u_html += "</tbody></table></div>"
-            st.markdown(u_html, unsafe_allow_html=True)
-
-        tab_cad, tab_edit = st.tabs(["➕ Cadastrar Novo Usuário", "✏️ Editar Usuário Existente"])
-
-        with tab_cad:
-            with st.form("form_novo_usuario"):
-                st.markdown("<strong style='color:#00205B;'>Formulário de Cadastro de Novo Usuário</strong>", unsafe_allow_html=True)
-                col_u1, col_u2 = st.columns(2)
-                with col_u1:
-                    new_u_username = st.text_input("Login / Username (ex: matheus.fava)", placeholder="Digite o login...").strip().lower()
-                    new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
-                with col_u2:
-                    new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
-                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e fluxos.")
-                    new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
-
-                submit_new_u = st.form_submit_button("💾 Salvar Usuário")
-
-                if submit_new_u:
-                    if not new_u_username or not new_u_nome or not new_u_senha:
-                        st.error("❌ Username, Nome Completo e Senha são obrigatórios.")
-                    else:
-                        existing_usernames = [str(x.get("username", "")).lower() for x in lista_usuarios_atual]
-                        if new_u_username in existing_usernames:
-                            st.error(f"❌ O username '{new_u_username}' já existe no sistema.")
-                        elif not sb_client:
-                            st.error("❌ Conexão indisponível.")
-                        else:
-                            user_payload = {
-                                "username": new_u_username,
-                                "nome": new_u_nome,
-                                "senha": new_u_senha,
-                                "perfil": new_u_perfil,
-                                "ativo": new_u_ativo
-                            }
-                            try:
-                                sb_client.insert_list_item(user_payload, list_name="usuarios")
-                                st.cache_data.clear()
-                                st.success(f"✔️ Usuário '{new_u_username}' cadastrado com sucesso!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Erro ao salvar usuário: {str(e)}")
-
-        with tab_edit:
-            if not lista_usuarios_atual:
-                st.info("Nenhum usuário cadastrado para edição.")
-            else:
-                user_options = [f"{u.get('username')} - {u.get('nome')} ({u.get('perfil')})" for u in lista_usuarios_atual]
-                selected_user_str = st.selectbox("Selecione o Usuário para Editar", user_options)
-                
-                if selected_user_str:
-                    sel_username = selected_user_str.split(" - ")[0]
-                    selected_u_dict = next((u for u in lista_usuarios_atual if str(u.get("username")) == str(sel_username)), {})
-
-                    with st.form("form_editar_usuario"):
-                        render_html(f"""
-                            <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #00205B; margin-bottom: 12px; font-size: 13px;">
-                                <strong>Editando Acesso:</strong> {selected_u_dict.get('username')} ({selected_u_dict.get('nome')})
-                            </div>
-                        """)
-                        col_eu1, col_eu2 = st.columns(2)
-                        with col_eu1:
-                            edit_u_nome = st.text_input("Nome Completo", value=selected_u_dict.get("nome", ""))
-                            edit_u_senha = st.text_input("Senha de Acesso", value=selected_u_dict.get("senha", ""), type="password")
-                        with col_eu2:
-                            current_perfil = selected_u_dict.get("perfil", "comprador")
-                            edit_u_perfil = st.selectbox(
-                                "Perfil de Acesso", 
-                                ["comprador", "administrador"], 
-                                index=0 if current_perfil == "comprador" else 1
-                            )
-                            edit_u_ativo = st.checkbox("Conta Ativa", value=bool(selected_u_dict.get("ativo", True)))
-
-                        submit_edit_u = st.form_submit_button("💾 Salvar Alterações")
-
-                        if submit_edit_u:
-                            if not edit_u_nome or not edit_u_senha:
-                                st.error("❌ Nome e Senha são campos obrigatórios.")
-                            elif not sb_client:
-                                st.error("❌ Conexão indisponível.")
-                            else:
-                                updated_u_payload = {
-                                    "username": sel_username,
-                                    "nome": edit_u_nome,
-                                    "senha": edit_u_senha,
-                                    "perfil": edit_u_perfil,
-                                    "ativo": edit_u_ativo
-                                }
-                                try:
-                                    sb_client.update_list_item(
-                                        item_id=sel_username, 
-                                        item_data=updated_u_payload, 
-                                        list_name="usuarios", 
-                                        id_column="username"
-                                    )
-                                    st.cache_data.clear()
-                                    st.success(f"✔️ Dados de '{sel_username}' atualizados com sucesso!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Erro ao atualizar usuário: {str(e)}")
+                perfil_tag = f'<span style="color

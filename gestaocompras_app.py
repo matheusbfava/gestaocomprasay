@@ -6,13 +6,13 @@ import os
 import requests
 import json
 
-# Adiciona o diretório atual ao path para garantir importação do cliente Supabase
+# Adiciona o diretório atual ao path para garantir importação do cliente
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 class SupabaseClient:
     """
-    Cliente de Conexão com o Banco de Dados do Sistema.
+    Cliente de Conexão com a Base de Dados Central.
     """
     
     def __init__(self, url: str, key: str):
@@ -61,7 +61,7 @@ class SupabaseClient:
             else:
                 raise Exception(f"HTTP {res.status_code}: {res.text}")
         except Exception as e:
-            raise Exception(f"Erro ao consultar dados ({list_name}): {str(e)}")
+            raise Exception(f"Erro ao carregar dados ({list_name}): {str(e)}")
 
     def insert_list_item(self, item_data: dict, list_name: str = "PGI_GestaoCotacoes") -> bool:
         if self.client:
@@ -119,7 +119,7 @@ class SupabaseClient:
             raise Exception(f"Erro ao excluir registro ({list_name}): {str(e)}")
 
 
-# Configuração da página e visual oficial do Grupo A.Yoshii
+# Configuração oficial do Grupo A.Yoshii
 st.set_page_config(
     page_title="PGI - Gestão de Suprimentos | A.Yoshii",
     page_icon="💼",
@@ -142,7 +142,7 @@ def format_buyer_name(name_str):
     return f"{first} {last[0].upper()}."
 
 
-# Estilização CSS customizada - Manual da Marca A.Yoshii
+# Estilização CSS institucional da Marca A.Yoshii
 st.markdown("""
     <style>
     /* Estilização da Barra Lateral (Sidebar) */
@@ -157,7 +157,7 @@ st.markdown("""
         border-color: rgba(255, 255, 255, 0.2) !important;
     }
     
-    /* Configuração de inputs e botões na barra lateral */
+    /* Inputs e botões na barra lateral */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #FF6F00 !important;
         color: #FFFFFF !important;
@@ -244,22 +244,6 @@ st.markdown("""
         margin: 0 0 6px 0;
     }
     .info-card p:last-child {
-        margin-bottom: 0;
-    }
-    
-    .success-card {
-        background-color: #EAF7EE;
-        border-left: 5px solid #28A745;
-        padding: 12px;
-        border-radius: 4px;
-        margin-bottom: 15px;
-        color: #1E1E1E;
-    }
-    .success-card h4, .success-card p {
-        color: #1E1E1E !important;
-        margin: 0 0 6px 0;
-    }
-    .success-card p:last-child {
         margin-bottom: 0;
     }
     
@@ -364,7 +348,6 @@ if st.session_state.sb_url and st.session_state.sb_key:
         )
         sb_client.connect()
     except Exception as e:
-        st.sidebar.error(f"Erro ao inicializar conexão: {str(e)}")
         sb_client = None
 
 # --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
@@ -386,7 +369,7 @@ def login(username, password):
     
     if matched_user:
         if not matched_user.get("ativo", True):
-            st.error("❌ Conta de usuário inativa. Entre em contato com o administrador do sistema.")
+            st.error("❌ Conta inativa. Entre em contato com a liderança de Suprimentos.")
             return
         if str(matched_user.get("senha", "")) == str(password):
             st.session_state.logged_in = True
@@ -404,14 +387,14 @@ def login(username, password):
             st.session_state.user = "Matheus Fava"
             st.session_state.username = "matheus.fava"
             st.session_state.user_perfil = "administrador"
-            st.success("✔️ Login de emergência realizado. Conectado como Administrador.")
+            st.success("✔️ Login de contingência autorizado.")
             st.rerun()
         elif username_clean == "admin" and password == "1234":
             st.session_state.logged_in = True
-            st.session_state.user = "Administrador System"
+            st.session_state.user = "Administrador Sistema"
             st.session_state.username = "admin"
             st.session_state.user_perfil = "administrador"
-            st.success("✔️ Login de emergência ativado.")
+            st.success("✔️ Login de contingência autorizado.")
             st.rerun()
         else:
             st.error("❌ Usuário não localizado ou senha incorreta.")
@@ -444,22 +427,26 @@ def carregar_grupos_insumo():
 
 # --- CARREGAMENTO DINÂMICO DAS OBRAS ---
 @st.cache_data(ttl=300)
-def carregar_obras():
+def carregar_obras_detalhadas():
     if sb_client:
         try:
             items = sb_client.get_list_items(list_name="dSUPRI_Obras")
-            obras = []
-            for item in items:
-                nome_obra = item.get("nome_obra", "")
-                if nome_obra:
-                    obras.append(str(nome_obra).strip().upper())
-            obras = sorted(list(set(obras)))
-            if obras:
-                return obras
+            if items:
+                return items
         except Exception:
             pass
-            
-    return LISTA_FALLBACK_OBRAS
+    return []
+
+@st.cache_data(ttl=300)
+def carregar_obras():
+    items = carregar_obras_detalhadas()
+    obras = []
+    for item in items:
+        nome = item.get("nome_reduzido", item.get("nome_obra", ""))
+        if nome:
+            obras.append(str(nome).strip().upper())
+    obras = sorted(list(set(obras)))
+    return obras if obras else LISTA_FALLBACK_OBRAS
 
 # --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS ---
 @st.cache_data(ttl=300)
@@ -500,9 +487,9 @@ def carregar_dados():
     else:
         return []
 
-# --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL (SEM CACHE) ---
+# --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL ---
 def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
-    """Consulta direta para impedir cadastro de ID PGI duplicado."""
+    """Consulta direta sem cache para garantir ID estritamente único."""
     if not sb_client:
         return False
     try:
@@ -564,8 +551,8 @@ if not st.session_state.logged_in:
                     🔑 Área Restrita de Acesso
                 </h3>
             """)
-            username_input = st.text_input("Usuário", placeholder="ID do usuário (ex: matheus.fava)")
-            password_input = st.text_input("Senha", type="password", placeholder="Digite a sua senha corporativa...")
+            username_input = st.text_input("Usuário", placeholder="ID do usuário corporativo")
+            password_input = st.text_input("Senha", type="password", placeholder="Digite a sua senha...")
             submit_button = st.form_submit_button("Acessar Painel")
             if submit_button:
                 login(username_input, password_input)
@@ -573,7 +560,7 @@ if not st.session_state.logged_in:
         render_html("""
             <div style="background-color: #F4F6F9; border-top: 3px solid #FF6F00; padding: 10px; border-radius: 4px; margin-top: 10px; text-align: center;">
                 <p style="margin: 0; font-size: 10px; color: #1E1E1E;">
-                    💡 <strong>Acesso Corporativo A.Yoshii:</strong> Utilize seu usuário e senha previamente autorizados pela Gestão de Suprimentos.
+                    💡 <strong>Acesso Corporativo A.Yoshii:</strong> Utilize seu usuário e senha autorizados pelo setor de Suprimentos.
                 </p>
             </div>
         """)
@@ -588,7 +575,7 @@ else:
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar de Navegação e Usuário Ativo com Alto Contraste
+    # Sidebar com bloco de usuário de alto contraste
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
@@ -597,15 +584,15 @@ else:
             </div>
         """)
         
-        # --- BLOCO DE USUÁRIO ATIVO TOTALMENTE LEGÍVEL (FUNDO ESCURO, FONTE DE DESTAQUE) ---
+        # --- BLOCO DO USUÁRIO ATIVO TOTALMENTE LEGÍVEL (FUNDO ESCURO E TIPOGRAFIA NÍTIDA) ---
         perfil_nome = "Administrador" if st.session_state.get("user_perfil") == "administrador" else "Comprador"
         render_html(f"""
             <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px;">
-                <div style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 4px;">Sessão Ativa</div>
-                <div style="font-size: 14px; color: #FFFFFF; font-weight: 800; line-height: 1.2; margin-bottom: 6px;">
+                <div style="font-size: 10px; color: #FFD180; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 800; margin-bottom: 4px;">Sessão Ativa</div>
+                <div style="font-size: 14px; color: #FFFFFF; font-weight: 800; line-height: 1.2; margin-bottom: 8px;">
                     👤 {st.session_state.user}
                 </div>
-                <div style="display: inline-block; background-color: #FF6F00; color: #FFFFFF; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 800;">
+                <div style="display: inline-block; background-color: #FF6F00; color: #FFFFFF; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 800;">
                     🛡️ {perfil_nome}
                 </div>
             </div>
@@ -636,7 +623,7 @@ else:
         if st.button("🚪 Sair do Aplicativo"):
             logout()
             
-    # Título do Painel Conectado (Sem menções a Supabase ou SQL)
+    # Cabeçalho Limpo (Sem referências técnicas a banco de dados)
     logo_header = get_logo_svg(theme="dark", width=120, height=25)
     render_html(f"""
         <div class="title-container">
@@ -652,7 +639,7 @@ else:
 
     # CONFIRMAÇÃO DE EXCLUSÃO
     if st.session_state.confirm_delete_id:
-        st.warning(f"⚠️ **Confirmação de Exclusão:** Deseja realmente excluir permanentemente o registro de ID PGI **{st.session_state.confirm_delete_id}**?")
+        st.warning(f"⚠️ **Confirmação:** Deseja realmente excluir o processo de ID PGI **{st.session_state.confirm_delete_id}**?")
         col_yes, col_no = st.columns([1, 10])
         with col_yes:
             if st.button("✅ Sim, Excluir", key="confirm_yes_btn"):
@@ -711,8 +698,8 @@ else:
                 </div>
             """)
         
-        # --- FILTROS RESTRITOS A 4 CAMPOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
-        with st.expander("🔍 Filtros de Pesquisa (ID, Comprador, Grupo de Insumo e Obra)", expanded=False):
+        # --- FILTROS RESTRITOS EXCLUSIVAMENTE AOS 4 CAMPOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
+        with st.expander("🔍 Filtros de Pesquisa por Processo", expanded=False):
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
                     return ["Todos"]
@@ -813,7 +800,7 @@ else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
     # ==========================================================================
-    # PAGE 2: LANÇAR NOVA COTAÇÃO (COM VERIFICAÇÃO RIGOROSA DE UNICIDADE)
+    # PAGE 2: LANÇAR NOVA COTAÇÃO (VERIFICAÇÃO RIGOROSA DE UNICIDADE)
     # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
         st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo ID de Processo</h3>", unsafe_allow_html=True)
@@ -839,16 +826,16 @@ else:
             if submit_new:
                 id_str = str(int(new_id)).strip()
                 
-                # Verificação 1: No cache local da sessão
+                # Verificação 1: Cache local
                 existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
                 
-                # Verificação 2: Consulta direta em tempo real
+                # Verificação 2: Consulta em tempo real direta
                 is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
                 
                 if not new_id:
                     st.error("❌ O ID PGI é obrigatório.")
                 elif (id_str in existing_ids_cache) or is_duplicate_live:
-                    st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Cada processo deve possuir um ID único.")
+                    st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Não são permitidos IDs duplicados.")
                 else:
                     if not sb_client:
                         st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
@@ -878,11 +865,11 @@ else:
                             }
                             sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! Processo {id_str} (Obra: {new_obra}) cadastrado com sucesso.")
+                            st.success(f"✔️ Sucesso! Processo {id_str} ({new_obra}) cadastrado com sucesso.")
                             st.session_state.menu_option = "Dashboard Geral"
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Erro ao cadastrar registro: {str(e)}")
+                            st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
     # ==========================================================================
     # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS
@@ -910,7 +897,7 @@ else:
                 with st.form("edit_record_form"):
                     render_html(f"""
                         <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
-                            <strong>Editando Registro:</strong> ID_PGI {item['ID_PGI']} | Obra Atual: {item.get('obra', 'N/A')} | {item['cotacao']}
+                            <strong>Editando Registro:</strong> ID_PGI {item['ID_PGI']} | Obra: {item.get('obra', 'N/A')} | {item['cotacao']}
                         </div>
                     """)
                     
@@ -1014,12 +1001,12 @@ else:
     elif st.session_state.menu_option == "Gestão de Obras (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
-            st.error("🔒 **Acesso Negado:** Apenas Administradores têm permissão para acessar este módulo.")
+            st.error("🔒 **Acesso Negado:** Módulo restrito a Administradores.")
             st.stop()
 
         st.markdown("<h3 class='styled-table-title'>🏗️ Gestão de Obras e Associação de Processos</h3>", unsafe_allow_html=True)
         
-        tab_vincular, tab_obras_cad = st.tabs(["🔗 Associar Obra ao ID PGI", "➕ Cadastrar / Listar Obras"])
+        tab_vincular, tab_obras_cad = st.tabs(["🔗 Associar Obra ao Processo", "➕ Cadastrar / Visualizar Obras"])
         
         with tab_vincular:
             st.markdown("<strong style='color:#00205B;'>Associação Rápida de Obra por Processo</strong>", unsafe_allow_html=True)
@@ -1033,18 +1020,18 @@ else:
                 with col_vo2:
                     sel_nova_obra = st.selectbox("Selecione a Obra de Destino", lista_obras_dynamic)
                 
-                if st.button("💾 Atualizar Obra do Processo", use_container_width=True):
+                if st.button("💾 Salvar Associação", use_container_width=True):
                     id_alvo = sel_pgi_vinc.split(" - ")[0]
                     try:
                         sb_client.update_list_item(id_alvo, {"obra": sel_nova_obra}, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
                         st.cache_data.clear()
-                        st.success(f"✔️ Obra '{sel_nova_obra}' associada com sucesso ao processo {id_alvo}!")
+                        st.success(f"✔️ Obra '{sel_nova_obra}' associada ao processo {id_alvo}!")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao associar obra: {str(e)}")
+                        st.error(f"Erro ao associar: {str(e)}")
                         
                 st.write("---")
-                st.markdown("<strong style='color:#00205B;'>Processos Atualmente sem Obra Definida (N/A)</strong>", unsafe_allow_html=True)
+                st.markdown("<strong style='color:#00205B;'>Processos Atualmente sem Obra (N/A)</strong>", unsafe_allow_html=True)
                 df_sem_obra = df_current[df_current["obra"].isin(["N/A", "", "NONE"])]
                 if not df_sem_obra.empty:
                     st.dataframe(df_sem_obra[["ID_PGI", "tipo", "Comprador", "cotacao"]], use_container_width=True)
@@ -1052,32 +1039,44 @@ else:
                     st.success("🎉 Todos os processos cadastrados possuem obras devidamente associadas!")
 
         with tab_obras_cad:
-            col_cad1, col_cad2 = st.columns([1.5, 2])
+            col_cad1, col_cad2 = st.columns([1.2, 1.8])
             with col_cad1:
                 st.markdown("<strong style='color:#00205B;'>Cadastrar Nova Obra</strong>", unsafe_allow_html=True)
                 with st.form("form_cad_obra"):
-                    nome_nova_obra = st.text_input("Nome da Obra (Ex: EDIFÍCIO LUMIÈRE)", placeholder="Digite o nome da obra...").strip().upper()
-                    cidade_obra = st.text_input("Cidade / UF (Opcional)", placeholder="Ex: Londrina / PR").strip()
+                    nome_nova_obra = st.text_input("Nome Reduzido da Obra", placeholder="Ex: Lumini").strip()
+                    empresa_obra = st.selectbox("Empresa", ["Incorporação A.Yoshii", "Incorporação Yticon", "A.Yoshii Urbanismo"])
+                    filial_obra = st.selectbox("Filial", ["Londrina", "Maringa", "Curitiba", "Campinas"])
                     btn_cad_obra = st.form_submit_button("Cadastrar Obra")
                     
                     if btn_cad_obra:
                         if not nome_nova_obra:
                             st.error("O nome da obra é obrigatório.")
-                        elif nome_nova_obra in lista_obras_dynamic:
-                            st.warning(f"A obra '{nome_nova_obra}' já está cadastrada.")
                         else:
                             try:
-                                sb_client.insert_list_item({"nome_obra": nome_nova_obra, "cidade": cidade_obra}, list_name="dSUPRI_Obras")
+                                payload_obra = {
+                                    "nome_reduzido": nome_nova_obra,
+                                    "empresa": empresa_obra,
+                                    "filial": filial_obra
+                                }
+                                sb_client.insert_list_item(payload_obra, list_name="dSUPRI_Obras")
                                 st.cache_data.clear()
-                                st.success(f"✔️ Obra '{nome_nova_obra}' cadastrada com sucesso!")
+                                st.success(f"✔️ Obra '{nome_nova_obra}' ({filial_obra}) cadastrada com sucesso!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro ao cadastrar obra: {str(e)}")
             
             with col_cad2:
-                st.markdown("<strong style='color:#00205B;'>Obras Cadastradas no Sistema</strong>", unsafe_allow_html=True)
-                df_obras_view = pd.DataFrame({"Nome da Obra": lista_obras_dynamic})
-                st.dataframe(df_obras_view, use_container_width=True, height=280)
+                st.markdown("<strong style='color:#00205B;'>Obras Cadastradas no Sistema (Oficial)</strong>", unsafe_allow_html=True)
+                dados_obras = carregar_obras_detalhadas()
+                if dados_obras:
+                    df_obras_view = pd.DataFrame(dados_obras)
+                    colunas_exibir = [c for c in ["nome_reduzido", "empresa", "filial"] if c in df_obras_view.columns]
+                    df_obras_view = df_obras_view[colunas_exibir].rename(
+                        columns={"nome_reduzido": "Nome da Obra", "empresa": "Empresa", "filial": "Filial"}
+                    )
+                    st.dataframe(df_obras_view, use_container_width=True, height=360)
+                else:
+                    st.info("Nenhuma obra encontrada.")
 
     # ==========================================================================
     # PAGE 5: GESTÃO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR)
@@ -1085,7 +1084,7 @@ else:
     elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
-            st.error("🔒 **Acesso Negado:** Apenas Administradores têm permissão para acessar este módulo.")
+            st.error("🔒 **Acesso Negado:** Módulo restrito a Administradores.")
             st.stop()
 
         st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários</h3>", unsafe_allow_html=True)
@@ -1131,18 +1130,18 @@ else:
                 st.markdown("<strong style='color:#00205B;'>Formulário de Cadastro de Novo Usuário</strong>", unsafe_allow_html=True)
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
-                    new_u_username = st.text_input("Login / Username (ex: matheus.fava)", placeholder="Digite o login sem espaços...").strip().lower()
+                    new_u_username = st.text_input("Login / Username (ex: matheus.fava)", placeholder="Digite o login...").strip().lower()
                     new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
                 with col_u2:
                     new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
-                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e acessos.")
+                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e fluxos.")
                     new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
 
-                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário")
+                submit_new_u = st.form_submit_button("💾 Salvar Usuário")
 
                 if submit_new_u:
                     if not new_u_username or not new_u_nome or not new_u_senha:
-                        st.error("❌ Username, Nome Completo e Senha são campos obrigatórios.")
+                        st.error("❌ Username, Nome Completo e Senha são obrigatórios.")
                     else:
                         existing_usernames = [str(x.get("username", "")).lower() for x in lista_usuarios_atual]
                         if new_u_username in existing_usernames:
@@ -1218,7 +1217,7 @@ else:
                                         id_column="username"
                                     )
                                     st.cache_data.clear()
-                                    st.success(f"✔️ Usuário '{sel_username}' atualizado com sucesso!")
+                                    st.success(f"✔️ Dados de '{sel_username}' atualizados com sucesso!")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Erro ao atualizar usuário: {str(e)}")

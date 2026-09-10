@@ -230,7 +230,7 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
     
-    /* Cards Informativos Estilizados */
+    /* Cards Informativos */
     .info-card {
         background-color: #F4F6F9;
         border-left: 5px solid #00205B;
@@ -242,9 +242,6 @@ st.markdown("""
     .info-card h4, .info-card p, .info-card code {
         color: #1E1E1E !important;
         margin: 0 0 6px 0;
-    }
-    .info-card p:last-child {
-        margin-bottom: 0;
     }
     
     div[data-baseweb="input"] {
@@ -381,7 +378,6 @@ def login(username, password):
         else:
             st.error("❌ Senha incorreta.")
     else:
-        # Bypass emergencial de segurança
         if username_clean == "matheus.fava" and password == "ayoshii1050":
             st.session_state.logged_in = True
             st.session_state.user = "Matheus Fava"
@@ -489,7 +485,6 @@ def carregar_dados():
 
 # --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL ---
 def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
-    """Consulta direta sem cache para garantir ID estritamente único."""
     if not sb_client:
         return False
     try:
@@ -584,7 +579,6 @@ else:
             </div>
         """)
         
-        # Bloco de usuário ativo em destaque visual
         perfil_nome = "Administrador" if st.session_state.get("user_perfil") == "administrador" else "Comprador"
         render_html(f"""
             <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px;">
@@ -653,7 +647,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL (COM DIFERENCIAÇÃO: TOTAIS, EM ANDAMENTO E FINALIZADOS)
+    # PAGE 1: DASHBOARD GERAL COM PLANILHA INTERATIVA ESTILO EXCEL
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -661,11 +655,8 @@ else:
         df_calc = df_current.copy()
         if not df_calc.empty:
             total_processos = len(df_calc)
-            # Critério Oficial: Processo finalizado quando a auditoria da pasta já foi realizada ('OK')
             total_finalizados = len(df_calc[df_calc["aud_pasta"].astype(str).str.strip().str.upper() == "OK"])
-            # Processos em andamento: Processos cuja auditoria ainda não está finalizada
             total_em_andamento = total_processos - total_finalizados
-            # Percentual de conclusão
             taxa_conclusao = (total_finalizados / total_processos * 100) if total_processos > 0 else 0.0
         else:
             total_processos = total_finalizados = total_em_andamento = 0
@@ -702,7 +693,7 @@ else:
                 </div>
             """)
         
-        # --- FILTROS RESTRITOS EXCLUSIVAMENTE AOS 4 CAMPOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
+        # --- FILTROS RESTRITOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
         with st.expander("🔍 Filtros de Pesquisa por Processo", expanded=False):
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
@@ -735,71 +726,181 @@ else:
             if f_obra != "Todos":
                 df_filtered = df_filtered[df_filtered["obra"].astype(str).str.contains(f_obra, case=False, na=False)]
 
-        st.markdown("<h3 class='styled-table-title'>📋 Lista Consolidada de Processos de Cotação</h3>", unsafe_allow_html=True)
-        
-        if not df_filtered.empty:
-            st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar ou Excluir o registro.</div>", unsafe_allow_html=True)
-            col_ac1, col_ac2, col_ac3 = st.columns([2, 1, 1])
-            with col_ac1:
-                action_pgi = st.selectbox("Selecione um Processo (ID PGI) para agir:", [""] + sorted(list(df_filtered["ID_PGI"].astype(str).unique())), label_visibility="collapsed")
-            with col_ac2:
-                if st.button("✏️ Editar Registro", use_container_width=True, disabled=not action_pgi):
-                    st.session_state.selected_pgi_to_edit = action_pgi
-                    st.session_state.menu_option = "Gerenciamento de Registros"
-                    st.rerun()
-            with col_ac3:
-                if st.button("🗑️ Excluir Registro", use_container_width=True, disabled=not action_pgi):
-                    st.session_state.confirm_delete_id = action_pgi
-                    st.rerun()
+        col_header_tb1, col_header_tb2 = st.columns([2.5, 1.5])
+        with col_header_tb1:
+            st.markdown("<h3 class='styled-table-title'>📋 Gestão Consolidada de Processos de Cotação</h3>", unsafe_allow_html=True)
+        with col_header_tb2:
+            modo_visualizacao = st.radio(
+                "Modo de Visualização:",
+                ["📝 Planilha Interativa (Excel)", "👁️ Tabela Visual (Badges)"],
+                horizontal=True,
+                label_visibility="collapsed"
+            )
 
-            headers = [
-                "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
-                "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
-                "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
-                "Credenc. GT", "Informar Eng.", "Audit. Pasta"
+        if not df_filtered.empty:
+            # Ordenação de colunas consistente
+            colunas_oficiais = [
+                "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
+                "orcamento", "due_dilligence", "equalizacao", "validacao_eng",
+                "validacao_ger", "validacao_sup", "req_mega", "contr_mega",
+                "param_fiscal", "minuta", "ass_digital", "credenciamento",
+                "comunicar", "aud_pasta"
             ]
             
-            table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
-            table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2300px;'>"
-            table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
-            table_html += "<tr>"
-            for h in headers:
-                table_html += f"<th style='padding: 10px 12px; text-align: left; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);'>{h}</th>"
-            table_html += "</tr>"
-            table_html += "</thead>"
-            table_html += "<tbody>"
-            
-            for index, row in df_filtered.iterrows():
-                table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
+            # Garante que todas as colunas existem
+            for col in colunas_oficiais:
+                if col not in df_filtered.columns:
+                    df_filtered[col] = "N/A"
+                    
+            df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
+
+            # ==================================================================
+            # MODO 1: PLANILHA INTERATIVA ESTILO EXCEL (COM DROPDOWNS E VALIDAÇÕES)
+            # ==================================================================
+            if modo_visualizacao == "📝 Planilha Interativa (Excel)":
+                render_html("""
+                    <div style="background-color:#F4F6F9; padding: 10px 14px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
+                        💡 <strong>Modo Planilha Ativo:</strong> Clique diretamente sobre qualquer célula para editar ou selecionar opções nas listas suspensas. Ao concluir as alterações, clique no botão <strong>"💾 Salvar Alterações da Planilha"</strong> abaixo.
+                    </div>
+                """)
+
+                # Garante que as opções dos dropdowns incluem os valores existentes para evitar inconsistências
+                opcoes_obras = sorted(list(set(lista_obras_dynamic + [str(x) for x in df_edit_view["obra"].unique() if str(x).strip()])))
+                opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
+                opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
                 
-                table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
-                table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['tipo']}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['Comprador']}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
-                table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{row['cotacao']}</td>"
+                # Configurações de colunas com listas suspensas e campos fixos
+                configuracao_colunas = {
+                    "ID_PGI": st.column_config.TextColumn("ID PGI", disabled=True, width="small"),
+                    "obra": st.column_config.SelectboxColumn("Obra", options=opcoes_obras, required=True, width="medium"),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=LISTA_TIPOS, required=True, width="small"),
+                    "Comprador": st.column_config.SelectboxColumn("Comprador", options=opcoes_compradores, required=True, width="medium"),
+                    "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width="medium"),
+                    "cotacao": st.column_config.TextColumn("Escopo / Cotação", width="large"),
+                    "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width="small"),
+                    "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width="small"),
+                    "equalizacao": st.column_config.SelectboxColumn("Equaliz.", options=OPCOES_STATUS, width="small"),
+                    "validacao_eng": st.column_config.SelectboxColumn("Valid. Eng.", options=OPCOES_STATUS, width="small"),
+                    "validacao_ger": st.column_config.SelectboxColumn("Valid. Ger.", options=OPCOES_STATUS, width="small"),
+                    "validacao_sup": st.column_config.SelectboxColumn("Valid. Sup.", options=OPCOES_STATUS, width="small"),
+                    "req_mega": st.column_config.TextColumn("Abertura RM", width="small"),
+                    "contr_mega": st.column_config.TextColumn("Contrato Mega", width="small"),
+                    "param_fiscal": st.column_config.SelectboxColumn("Param. Fiscal", options=OPCOES_STATUS, width="small"),
+                    "minuta": st.column_config.SelectboxColumn("Minuta", options=OPCOES_STATUS, width="small"),
+                    "ass_digital": st.column_config.SelectboxColumn("Ass. Digital", options=OPCOES_STATUS, width="small"),
+                    "credenciamento": st.column_config.SelectboxColumn("Credenc. GT", options=OPCOES_STATUS, width="small"),
+                    "comunicar": st.column_config.SelectboxColumn("Informar Eng.", options=OPCOES_STATUS, width="small"),
+                    "aud_pasta": st.column_config.SelectboxColumn("Audit. Pasta", options=OPCOES_STATUS, width="small"),
+                }
+
+                # Componente nativo de edição em planilha
+                df_editado_usuario = st.data_editor(
+                    df_edit_view,
+                    column_config=configuracao_colunas,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    hide_index=True,
+                    key="editor_planilha_dashboard",
+                    height=520
+                )
+
+                col_btn_salvar, col_btn_espaco = st.columns([2, 5])
+                with col_btn_salvar:
+                    if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
+                        # Detecta linhas com alterações entre o original e o editado
+                        alteracoes_detectadas = 0
+                        with st.spinner("Sincronizando alterações com a base de dados..."):
+                            for idx, row_edit in df_editado_usuario.iterrows():
+                                row_orig = df_edit_view.loc[idx]
+                                diff_dict = {}
+                                for col_name in colunas_oficiais:
+                                    if col_name != "ID_PGI":
+                                        val_orig = str(row_orig[col_name]).strip()
+                                        val_edit = str(row_edit[col_name]).strip()
+                                        if val_orig != val_edit:
+                                            diff_dict[col_name] = val_edit
+                                            
+                                if diff_dict:
+                                    pgi_alvo = str(row_edit["ID_PGI"]).strip()
+                                    try:
+                                        sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                                        alteracoes_detectadas += 1
+                                    except Exception as err:
+                                        st.error(f"Erro ao atualizar ID {pgi_alvo}: {str(err)}")
+                                        
+                        if alteracoes_detectadas > 0:
+                            st.cache_data.clear()
+                            st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
+                            st.rerun()
+                        else:
+                            st.info("ℹ️ Nenhuma alteração foi realizada na planilha.")
+
+            # ==================================================================
+            # MODO 2: VISUALIZAÇÃO COM BADGES COLORIDOS E AÇÕES RÁPIDAS
+            # ==================================================================
+            else:
+                st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar em formulário ou Excluir o registro.</div>", unsafe_allow_html=True)
+                col_ac1, col_ac2, col_ac3 = st.columns([2, 1, 1])
+                with col_ac1:
+                    action_pgi = st.selectbox("Selecione um Processo (ID PGI) para agir:", [""] + sorted(list(df_filtered["ID_PGI"].astype(str).unique())), label_visibility="collapsed")
+                with col_ac2:
+                    if st.button("✏️ Editar Registro", use_container_width=True, disabled=not action_pgi):
+                        st.session_state.selected_pgi_to_edit = action_pgi
+                        st.session_state.menu_option = "Gerenciamento de Registros"
+                        st.rerun()
+                with col_ac3:
+                    if st.button("🗑️ Excluir Registro", use_container_width=True, disabled=not action_pgi):
+                        st.session_state.confirm_delete_id = action_pgi
+                        st.rerun()
+
+                headers = [
+                    "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
+                    "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
+                    "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
+                    "Credenc. GT", "Informar Eng.", "Audit. Pasta"
+                ]
                 
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['orcamento'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['due_dilligence'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['equalizacao'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_eng'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_ger'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_sup'])}</td>"
-                
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['req_mega'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['contr_mega'])}</td>"
-                
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['param_fiscal'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['minuta'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['ass_digital'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['credenciamento'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['comunicar'])}</td>"
-                table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['aud_pasta'])}</td>"
-                
+                table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
+                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2300px;'>"
+                table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
+                table_html += "<tr>"
+                for h in headers:
+                    table_html += f"<th style='padding: 10px 12px; text-align: left; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);'>{h}</th>"
                 table_html += "</tr>"
-            
-            table_html += "</tbody></table></div>"
-            st.markdown(table_html, unsafe_allow_html=True)
+                table_html += "</thead>"
+                table_html += "<tbody>"
+                
+                for index, row in df_filtered.iterrows():
+                    table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
+                    
+                    table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
+                    table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['tipo']}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['Comprador']}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
+                    table_html += f"<td style='padding: 8px 12px; font-weight: 600; border: 1px solid #F4F6F9;'>{row['cotacao']}</td>"
+                    
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['orcamento'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['due_dilligence'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['equalizacao'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_eng'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_ger'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['validacao_sup'])}</td>"
+                    
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['req_mega'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['contr_mega'])}</td>"
+                    
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['param_fiscal'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['minuta'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['ass_digital'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['credenciamento'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['comunicar'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['aud_pasta'])}</td>"
+                    
+                    table_html += "</tr>"
+                
+                table_html += "</tbody></table></div>"
+                st.markdown(table_html, unsafe_allow_html=True)
         else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
@@ -829,11 +930,7 @@ else:
             
             if submit_new:
                 id_str = str(int(new_id)).strip()
-                
-                # Verificação 1: Cache local
                 existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
-                
-                # Verificação 2: Consulta em tempo real direta
                 is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
                 
                 if not new_id:
@@ -876,7 +973,7 @@ else:
                             st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
     # ==========================================================================
-    # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS
+    # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS (FORMULÁRIO DETALHADO)
     # ==========================================================================
     elif st.session_state.menu_option == "Gerenciamento de Registros":
         st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações</h3>", unsafe_allow_html=True)

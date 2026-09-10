@@ -12,8 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 class SupabaseClient:
     """
-    Cliente de Conexão Ultra-Rápido para Supabase (v2).
-    Suporta tabelas de cotações, grupos de insumo e gestão de usuários.
+    Cliente de Conexão com o Banco de Dados do Sistema.
     """
     
     def __init__(self, url: str, key: str):
@@ -25,7 +24,7 @@ class SupabaseClient:
         
     def connect(self) -> bool:
         if not self.url or not self.key:
-            raise ValueError("SUPABASE_URL e SUPABASE_KEY são obrigatórios.")
+            raise ValueError("Configurações de conexão não localizadas.")
             
         try:
             from supabase import create_client
@@ -36,7 +35,7 @@ class SupabaseClient:
             self.connected = True
             return True
         except Exception as e:
-            raise Exception(f"Erro ao conectar com Supabase: {str(e)}")
+            raise Exception(f"Erro ao conectar ao sistema: {str(e)}")
 
     def _get_headers(self) -> dict:
         return {
@@ -47,15 +46,12 @@ class SupabaseClient:
         }
 
     def get_list_items(self, list_name: str = "PGI_GestaoCotacoes") -> list:
-        """
-        Busca registros de qualquer tabela do Supabase em milissegundos.
-        """
         if self.client:
             try:
                 response = self.client.table(list_name).select("*").execute()
                 return response.data if response.data else []
             except Exception:
-                pass  # Fallback para REST API
+                pass
                 
         endpoint = f"{self.rest_url}/{list_name}?select=*"
         try:
@@ -65,12 +61,9 @@ class SupabaseClient:
             else:
                 raise Exception(f"HTTP {res.status_code}: {res.text}")
         except Exception as e:
-            raise Exception(f"Erro ao consultar Supabase ({list_name}): {str(e)}")
+            raise Exception(f"Erro ao consultar dados ({list_name}): {str(e)}")
 
     def insert_list_item(self, item_data: dict, list_name: str = "PGI_GestaoCotacoes") -> bool:
-        """
-        Insere um novo registro em qualquer tabela do Supabase.
-        """
         if self.client:
             try:
                 self.client.table(list_name).insert(item_data).execute()
@@ -86,12 +79,9 @@ class SupabaseClient:
             else:
                 raise Exception(f"HTTP {res.status_code}: {res.text}")
         except Exception as e:
-            raise Exception(f"Erro ao inserir no Supabase ({list_name}): {str(e)}")
+            raise Exception(f"Erro ao cadastrar registro ({list_name}): {str(e)}")
 
     def update_list_item(self, item_id: str, item_data: dict, list_name: str = "PGI_GestaoCotacoes", id_column: str = "ID_PGI") -> bool:
-        """
-        Atualiza um registro existente no Supabase especificando a coluna de identificação.
-        """
         id_val = item_data.get(id_column, item_id)
         if self.client:
             try:
@@ -108,12 +98,9 @@ class SupabaseClient:
             else:
                 raise Exception(f"HTTP {res.status_code}: {res.text}")
         except Exception as e:
-            raise Exception(f"Erro ao atualizar no Supabase ({list_name}): {str(e)}")
+            raise Exception(f"Erro ao atualizar registro ({list_name}): {str(e)}")
 
     def delete_list_item(self, item_id: str, list_name: str = "PGI_GestaoCotacoes", id_column: str = "ID_PGI") -> bool:
-        """
-        Exclui um registro no Supabase pela coluna especificada.
-        """
         if self.client:
             try:
                 self.client.table(list_name).delete().eq(id_column, str(item_id)).execute()
@@ -129,12 +116,12 @@ class SupabaseClient:
             else:
                 raise Exception(f"HTTP {res.status_code}: {res.text}")
         except Exception as e:
-            raise Exception(f"Erro ao excluir no Supabase ({list_name}): {str(e)}")
+            raise Exception(f"Erro ao excluir registro ({list_name}): {str(e)}")
 
 
-# Configuração da página e visual premium do Grupo A.Yoshii
+# Configuração da página e visual oficial do Grupo A.Yoshii
 st.set_page_config(
-    page_title="PGI - Gestão de Cotações (Supabase Live)",
+    page_title="PGI - Gestão de Suprimentos | A.Yoshii",
     page_icon="💼",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -155,10 +142,10 @@ def format_buyer_name(name_str):
     return f"{first} {last[0].upper()}."
 
 
-# Estilização CSS customizada para atender rigidamente ao Manual de Aplicação da Marca
+# Estilização CSS customizada - Manual da Marca A.Yoshii
 st.markdown("""
     <style>
-    /* Estilização da Barra Lateral (Sidebar) para Fundo Azul Institucional */
+    /* Estilização da Barra Lateral (Sidebar) */
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
@@ -183,7 +170,7 @@ st.markdown("""
         background-color: #E05D00 !important;
     }
     
-    /* Cabeçalho Premium - Logo Integrada e Altura Mínima Otimizada */
+    /* Cabeçalho Corporativo */
     .title-container {
         padding: 8px 16px !important;
         background-color: #00205B;
@@ -342,10 +329,14 @@ LISTA_FALLBACK_GRUPO_INSUMO = [
     "SRV - TOPOGRAFIA", "SRV - CLIMATIZACAO"
 ]
 
+LISTA_FALLBACK_OBRAS = [
+    "CORPORATIVO / GERAL", "ECOVILLAS DO LAGO", "ATMOS", "HARMONIA", "LEGEND"
+]
+
 LISTA_TIPOS = ["Novo", "Aditivo"]
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# --- CONFIGURAÇÕES DE INTEGRAÇÃO EXCLUSIVA SUPABASE ---
+# --- CONFIGURAÇÕES DE INTEGRAÇÃO ---
 if "sb_url" not in st.session_state:
     st.session_state.sb_url = st.secrets.get("SUPABASE_URL", st.secrets.get("supabase_url", ""))
 if "sb_key" not in st.session_state:
@@ -359,13 +350,13 @@ if "confirm_delete_id" not in st.session_state:
 if "user_perfil" not in st.session_state:
     st.session_state.user_perfil = "comprador"
 
-# --- SESSÃO DE AUTENTICAÇÃO DO USUÁRIO NO APP (LOGIN) ---
+# --- SESSÃO DE AUTENTICAÇÃO DO USUÁRIO ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# --- INSTANCIAÇÃO DO CLIENTE SUPABASE ---
+# --- INSTANCIAÇÃO DO CLIENTE ---
 sb_client = None
-if st.session_state.sb_url and st.session_state.sb_key and SupabaseClient:
+if st.session_state.sb_url and st.session_state.sb_key:
     try:
         sb_client = SupabaseClient(
             url=st.session_state.sb_url,
@@ -373,23 +364,19 @@ if st.session_state.sb_url and st.session_state.sb_key and SupabaseClient:
         )
         sb_client.connect()
     except Exception as e:
-        st.sidebar.error(f"❌ Erro ao inicializar o Supabase: {str(e)}")
+        st.sidebar.error(f"Erro ao inicializar conexão: {str(e)}")
         sb_client = None
 
 # --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
 @st.cache_data(ttl=60)
 def carregar_usuarios():
-    """
-    Busca a lista de usuários e credenciais direto da tabela 'usuarios' do Supabase Real.
-    """
     if sb_client:
         try:
             users = sb_client.get_list_items(list_name="usuarios")
             if isinstance(users, list) and len(users) > 0:
                 return users
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Falha ao ler tabela de usuários no Supabase: {str(e)}")
-            
+        except Exception:
+            pass
     return []
 
 def login(username, password):
@@ -427,7 +414,7 @@ def login(username, password):
             st.success("✔️ Login de emergência ativado.")
             st.rerun()
         else:
-            st.error("❌ Usuário não localizado na base real ou senha incorreta.")
+            st.error("❌ Usuário não localizado ou senha incorreta.")
 
 def logout():
     st.session_state.logged_in = False
@@ -436,12 +423,9 @@ def logout():
     st.session_state.pop("user_perfil", None)
     st.rerun()
 
-# --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO (COM CACHE) ---
+# --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO ---
 @st.cache_data(ttl=300)
 def carregar_grupos_insumo():
-    """
-    Busca os nomes dos grupos de insumo direto do Supabase (tabela dSUPRI_GruposInsumo).
-    """
     if sb_client:
         try:
             items = sb_client.get_list_items(list_name="dSUPRI_GruposInsumo")
@@ -453,12 +437,31 @@ def carregar_grupos_insumo():
             grupos = sorted(list(set(grupos)))
             if grupos:
                 return grupos
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Falha ao ler dSUPRI_GruposInsumo no Supabase: {str(e)}")
+        except Exception:
+            pass
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
-# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS (SEM VALORES FINANCEIROS) ---
+# --- CARREGAMENTO DINÂMICO DAS OBRAS ---
+@st.cache_data(ttl=300)
+def carregar_obras():
+    if sb_client:
+        try:
+            items = sb_client.get_list_items(list_name="dSUPRI_Obras")
+            obras = []
+            for item in items:
+                nome_obra = item.get("nome_obra", "")
+                if nome_obra:
+                    obras.append(str(nome_obra).strip().upper())
+            obras = sorted(list(set(obras)))
+            if obras:
+                return obras
+        except Exception:
+            pass
+            
+    return LISTA_FALLBACK_OBRAS
+
+# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -468,6 +471,7 @@ def carregar_dados():
             for item in items:
                 dados_mapeados.append({
                     "ID_PGI": str(item.get("ID_PGI", "")),
+                    "obra": str(item.get("obra", "N/A")).strip().upper(),
                     "sp_id": item.get("ID"),
                     "DT_EMISSAO": str(item.get("DT_EMISSAO", "")),
                     "tipo": str(item.get("tipo", "Novo")),
@@ -491,11 +495,25 @@ def carregar_dados():
                     "aud_pasta": str(item.get("aud_pasta", "aguardando"))
                 })
             return dados_mapeados
-        except Exception as e:
-            st.sidebar.error(f"⚠️ Erro ao ler dados do Supabase: {str(e)}")
+        except Exception:
             return []
     else:
         return []
+
+# --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL (SEM CACHE) ---
+def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
+    """Consulta direta para impedir cadastro de ID PGI duplicado."""
+    if not sb_client:
+        return False
+    try:
+        endpoint = f"{sb_client.rest_url}/PGI_GestaoCotacoes?ID_PGI=eq.{str(id_pgi).strip()}&select=ID_PGI"
+        res = requests.get(endpoint, headers=sb_client._get_headers(), timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return len(data) > 0
+    except Exception:
+        pass
+    return False
 
 # --- FUNÇÃO PARA EXCLUIR REGISTRO ---
 def excluir_registro(pgi_id):
@@ -505,10 +523,10 @@ def excluir_registro(pgi_id):
             st.cache_data.clear()
             return True
         except Exception as e:
-            st.error(f"❌ Erro ao excluir do Supabase: {str(e)}")
+            st.error(f"Erro ao excluir: {str(e)}")
             return False
     else:
-        st.error("❌ Supabase desconectado. Operação cancelada.")
+        st.error("Conexão indisponível. Operação cancelada.")
         return False
 
 # --- HELPER DE BADGES DE STATUS PARA TABELA ---
@@ -523,7 +541,10 @@ def get_html_status_badge(status):
     else:
         return f'<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00; display:inline-block;">{status_clean.upper()}</span>'
 
-# --- TELA DE LOGIN ---
+
+# ==============================================================================
+# TELA DE LOGIN
+# ==============================================================================
 if not st.session_state.logged_in:
     logo_light = get_logo_svg(theme="light", width=180, height=38)
     render_html(f"""
@@ -552,55 +573,49 @@ if not st.session_state.logged_in:
         render_html("""
             <div style="background-color: #F4F6F9; border-top: 3px solid #FF6F00; padding: 10px; border-radius: 4px; margin-top: 10px; text-align: center;">
                 <p style="margin: 0; font-size: 10px; color: #1E1E1E;">
-                    💡 <strong>Acesso ao Sistema:</strong><br>
-                    Usuário Administrador: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">matheus.fava</code> | 
-                    Senha: <code style="background-color: #E2E8F0; padding: 1px 3px; border-radius: 2px;">ayoshii1050</code>
+                    💡 <strong>Acesso Corporativo A.Yoshii:</strong> Utilize seu usuário e senha previamente autorizados pela Gestão de Suprimentos.
                 </p>
             </div>
         """)
 
-# --- TELA PRINCIPAL (APÓS LOGIN) ---
+# ==============================================================================
+# TELA PRINCIPAL (APÓS LOGIN)
+# ==============================================================================
 else:
     lista_grupo_insumo_dynamic = carregar_grupos_insumo()
+    lista_obras_dynamic = carregar_obras()
     
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar de Navegação e Configurações
+    # Sidebar de Navegação e Usuário Ativo com Alto Contraste
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
-            <div style="padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 10px; text-align: center;">
+            <div style="padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 15px; text-align: center;">
                 {logo_dark}
             </div>
         """)
         
-        st.markdown(f"👤 **Usuário Ativo:** `{st.session_state.user}`")
-        perfil_label = "👑 Administrador" if st.session_state.get("user_perfil") == "administrador" else "💼 Comprador"
-        st.markdown(f"🛡️ **Perfil:** `{perfil_label}`")
-        
-        st.write("---")
-        st.subheader("🗄️ Origem dos Dados")
-        
-        if sb_client:
-            render_html("""
-                <div style="background-color: rgba(40,167,69,0.15); border: 1px solid #28A745; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
-                    🟢 <strong>Base Real Ativa:</strong> Supabase PostgreSQL
+        # --- BLOCO DE USUÁRIO ATIVO TOTALMENTE LEGÍVEL (FUNDO ESCURO, FONTE DE DESTAQUE) ---
+        perfil_nome = "Administrador" if st.session_state.get("user_perfil") == "administrador" else "Comprador"
+        render_html(f"""
+            <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px;">
+                <div style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 4px;">Sessão Ativa</div>
+                <div style="font-size: 14px; color: #FFFFFF; font-weight: 800; line-height: 1.2; margin-bottom: 6px;">
+                    👤 {st.session_state.user}
                 </div>
-            """)
-        else:
-            render_html("""
-                <div style="background-color: rgba(220,53,69,0.15); border: 1px solid #DC3545; padding: 6px; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
-                    🔴 <strong>Supabase Desconectado.</strong> Configure os Secrets para conectar.
+                <div style="display: inline-block; background-color: #FF6F00; color: #FFFFFF; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 800;">
+                    🛡️ {perfil_nome}
                 </div>
-            """)
-            
-        st.write("---")
+            </div>
+        """)
+        
         is_admin = st.session_state.get("user_perfil") == "administrador"
         nav_options = ["Dashboard Geral", "Adicionar ID", "Gerenciamento de Registros"]
         if is_admin:
+            nav_options.append("Gestão de Obras (Admin)")
             nav_options.append("Gestão de Usuários (Admin)")
-        nav_options.append("Integração Supabase")
 
         menu_option_radio = st.radio(
             "Navegação",
@@ -612,22 +627,22 @@ else:
             st.rerun()
         
         st.write("---")
-        if st.button("🔄 Atualizar Cache de Dados", use_container_width=True):
+        if st.button("🔄 Sincronizar Dados", use_container_width=True):
             st.cache_data.clear()
-            st.success("⚡ Cache limpo! Recarregando dados...")
+            st.success("Dados sincronizados com sucesso!")
             st.rerun()
         
         st.write("---")
         if st.button("🚪 Sair do Aplicativo"):
             logout()
             
-    # Título do Painel Conectado
+    # Título do Painel Conectado (Sem menções a Supabase ou SQL)
     logo_header = get_logo_svg(theme="dark", width=120, height=25)
     render_html(f"""
         <div class="title-container">
             <div class="title-text-box">
                 <div class="title-main">Gestão de Cotações de Suprimentos</div>
-                <div class="title-sub">Base de Dados Oficial: Supabase Real (PostgreSQL) / PGI_GestaoCotacoes</div>
+                <div class="title-sub">Sistema Integrado de Acompanhamento de Processos | A.Yoshii Engenharia</div>
             </div>
             <div style="padding: 2px;">
                 {logo_header}
@@ -635,14 +650,14 @@ else:
         </div>
     """)
 
-    # LOGICA DE CONFIRMAÇÃO DE EXCLUSÃO
+    # CONFIRMAÇÃO DE EXCLUSÃO
     if st.session_state.confirm_delete_id:
-        st.warning(f"⚠️ **Confirmação de Exclusão:** Deseja realmente excluir permanentemente o registro de ID PGI **{st.session_state.confirm_delete_id}** da base real do Supabase?")
+        st.warning(f"⚠️ **Confirmação de Exclusão:** Deseja realmente excluir permanentemente o registro de ID PGI **{st.session_state.confirm_delete_id}**?")
         col_yes, col_no = st.columns([1, 10])
         with col_yes:
             if st.button("✅ Sim, Excluir", key="confirm_yes_btn"):
                 if excluir_registro(st.session_state.confirm_delete_id):
-                    st.success(f"✔️ Registro {st.session_state.confirm_delete_id} excluído com sucesso do Supabase.")
+                    st.success(f"✔️ Registro {st.session_state.confirm_delete_id} excluído com sucesso.")
                 st.session_state.confirm_delete_id = None
                 st.rerun()
         with col_no:
@@ -650,7 +665,9 @@ else:
                 st.session_state.confirm_delete_id = None
                 st.rerun()
 
+    # ==========================================================================
     # PAGE 1: DASHBOARD GERAL
+    # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
         
@@ -694,70 +711,40 @@ else:
                 </div>
             """)
         
-        # --- SEÇÃO DE FILTROS AVANÇADOS ---
-        with st.expander("🔍 Filtros de Pesquisa por Coluna (Modo Contém / Pesquisa Parcial)", expanded=False):
-            st.info("Digite ou selecione termos para pesquisar em qualquer uma das colunas. A tabela abaixo exibirá apenas registros correspondentes.")
-            
+        # --- FILTROS RESTRITOS A 4 CAMPOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
+        with st.expander("🔍 Filtros de Pesquisa (ID, Comprador, Grupo de Insumo e Obra)", expanded=False):
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
                     return ["Todos"]
-                unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if v])
+                unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if str(v).strip()])
                 return ["Todos"] + unique_vals
 
             col_f1, col_f2, col_f3, col_f4 = st.columns(4)
             with col_f1:
                 f_id = st.selectbox("ID PGI", get_filter_options(df_current, "ID_PGI"), key="f_id_sel")
             with col_f2:
-                f_tipo = st.selectbox("Tipo", get_filter_options(df_current, "tipo"), key="f_tipo_sel")
-            with col_f3:
                 f_comprador = st.selectbox("Comprador", get_filter_options(df_current, "Comprador"), key="f_comprador_sel")
-            with col_f4:
+            with col_f3:
                 f_grupo = st.selectbox("Grupo Insumo", get_filter_options(df_current, "grupoinsumo"), key="f_grupo_sel")
+            with col_f4:
+                f_obra = st.selectbox("Obra", get_filter_options(df_current, "obra"), key="f_obra_sel")
 
-            col_f5, col_f6, col_f7, col_f8 = st.columns(4)
-            with col_f5:
-                f_cot = st.selectbox("Escopo de Cotação", get_filter_options(df_current, "cotacao"), key="f_cot_sel")
-            with col_f6:
-                f_orc = st.selectbox("Solicitar Orçamento", get_filter_options(df_current, "orcamento"), key="f_orc_sel")
-            with col_f7:
-                f_due = st.selectbox("Due Diligence", get_filter_options(df_current, "due_dilligence"), key="f_due_sel")
-            with col_f8:
-                f_eq = st.selectbox("Equalização", get_filter_options(df_current, "equalizacao"), key="f_eq_sel")
-
-            col_f9, col_f10, col_f11 = st.columns(3)
-            with col_f9:
-                f_eng = st.selectbox("Valid. Engenharia", get_filter_options(df_current, "validacao_eng"), key="f_eng_sel")
-            with col_f10:
-                f_aud = st.selectbox("Audit. Pasta", get_filter_options(df_current, "aud_pasta"), key="f_aud_sel")
-            with col_f11:
-                st.write("<div style='height:28px;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 Limpar Filtros", use_container_width=True):
-                    st.rerun()
+            st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
+            if st.button("🔄 Limpar Filtros", use_container_width=False):
+                st.rerun()
 
         df_filtered = df_current.copy()
         if not df_filtered.empty:
             if f_id != "Todos":
                 df_filtered = df_filtered[df_filtered["ID_PGI"].astype(str).str.contains(f_id, case=False, na=False)]
-            if f_tipo != "Todos":
-                df_filtered = df_filtered[df_filtered["tipo"].astype(str).str.contains(f_tipo, case=False, na=False)]
             if f_comprador != "Todos":
                 df_filtered = df_filtered[df_filtered["Comprador"].astype(str).str.contains(f_comprador, case=False, na=False)]
             if f_grupo != "Todos":
                 df_filtered = df_filtered[df_filtered["grupoinsumo"].astype(str).str.contains(f_grupo, case=False, na=False)]
-            if f_cot != "Todos":
-                df_filtered = df_filtered[df_filtered["cotacao"].astype(str).str.contains(f_cot, case=False, na=False)]
-            if f_orc != "Todos":
-                df_filtered = df_filtered[df_filtered["orcamento"].astype(str).str.contains(f_orc, case=False, na=False)]
-            if f_due != "Todos":
-                df_filtered = df_filtered[df_filtered["due_dilligence"].astype(str).str.contains(f_due, case=False, na=False)]
-            if f_eq != "Todos":
-                df_filtered = df_filtered[df_filtered["equalizacao"].astype(str).str.contains(f_eq, case=False, na=False)]
-            if f_eng != "Todos":
-                df_filtered = df_filtered[df_filtered["validacao_eng"].astype(str).str.contains(f_eng, case=False, na=False)]
-            if f_aud != "Todos":
-                df_filtered = df_filtered[df_filtered["aud_pasta"].astype(str).str.contains(f_aud, case=False, na=False)]
+            if f_obra != "Todos":
+                df_filtered = df_filtered[df_filtered["obra"].astype(str).str.contains(f_obra, case=False, na=False)]
 
-        st.markdown("<h3 class='styled-table-title'>📋 Lista Consolidada de Processos de Cotação (Base Supabase)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>📋 Lista Consolidada de Processos de Cotação</h3>", unsafe_allow_html=True)
         
         if not df_filtered.empty:
             st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar ou Excluir o registro.</div>", unsafe_allow_html=True)
@@ -775,14 +762,14 @@ else:
                     st.rerun()
 
             headers = [
-                "ID PGI", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
+                "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                 "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
                 "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
                 "Credenc. GT", "Informar Eng.", "Audit. Pasta"
             ]
             
             table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
-            table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2200px;'>"
+            table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2300px;'>"
             table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
             table_html += "<tr>"
             for h in headers:
@@ -795,6 +782,7 @@ else:
                 table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                 
                 table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
+                table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['tipo']}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['Comprador']}</td>"
                 table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{row['grupoinsumo']}</td>"
@@ -822,49 +810,57 @@ else:
             table_html += "</tbody></table></div>"
             st.markdown(table_html, unsafe_allow_html=True)
         else:
-            if not sb_client:
-                st.warning("⚠️ O aplicativo está desconectado do Supabase. Configure suas credenciais na página de Integração Supabase.")
-            else:
-                st.info("Nenhuma cotação localizada na base de dados real do Supabase.")
+            st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
-    # PAGE 2: LANÇAR NOVA COTAÇÃO
+    # ==========================================================================
+    # PAGE 2: LANÇAR NOVA COTAÇÃO (COM VERIFICAÇÃO RIGOROSA DE UNICIDADE)
+    # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
-        st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo ID (Supabase Real)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo ID de Processo</h3>", unsafe_allow_html=True)
         
         render_html("""
             <div class="info-card">
-                <strong>🛡️ Adicionar Novo ID de Processo:</strong> Insira o ID PGI, selecione o Tipo de Processo e o Comprador responsável para iniciar um novo fluxo na base real. Os demais campos de status serão iniciados automaticamente como 'aguardando' ou 'N/A'.
+                <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo.
             </div>
         """)
         
         with st.form("new_record_form"):
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                new_id = st.number_input("ID PGI (Somente número inteiro)", min_value=1, step=1, format="%d", value=49001)
+                new_id = st.number_input("ID PGI (Número Único)", min_value=1, step=1, format="%d", value=49001)
                 new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
             with col_f2:
+                new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
                 new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
                 
             st.write("")
             submit_new = st.form_submit_button("💾 Salvar Novo ID")
             
             if submit_new:
-                existing_ids = [str(item.get("ID_PGI", "")) for item in db_data_current]
+                id_str = str(int(new_id)).strip()
+                
+                # Verificação 1: No cache local da sessão
+                existing_ids_cache = [str(item.get("ID_PGI", "")).strip() for item in db_data_current]
+                
+                # Verificação 2: Consulta direta em tempo real
+                is_duplicate_live = verificar_id_duplicado_tempo_real(id_str)
+                
                 if not new_id:
                     st.error("❌ O ID PGI é obrigatório.")
-                elif str(new_id) in existing_ids:
-                    st.error(f"❌ Erro de Unicidade: Já existe um registro com o ID_PGI '{new_id}'.")
+                elif (id_str in existing_ids_cache) or is_duplicate_live:
+                    st.error(f"❌ **Erro de Duplicidade:** O ID PGI **{id_str}** já existe no sistema! Cada processo deve possuir um ID único.")
                 else:
                     if not sb_client:
-                        st.error("❌ Supabase desconectado. Não é possível cadastrar registros sem conexão com a base real.")
+                        st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
                     else:
                         try:
                             sp_payload = {
-                                "ID_PGI": str(int(new_id)),
+                                "ID_PGI": id_str,
+                                "obra": str(new_obra),
                                 "tipo": str(new_tipo),
                                 "Comprador": str(new_comprador),
                                 "grupoinsumo": "N/A",
-                                "cotacao": f"PROCESSO PGI {int(new_id)}",
+                                "cotacao": f"PROCESSO PGI {id_str}",
                                 "due_dilligence": "aguardando",
                                 "equalizacao": "aguardando",
                                 "orcamento": "aguardando",
@@ -882,20 +878,22 @@ else:
                             }
                             sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! Processo {new_id} salvo diretamente no Supabase.")
+                            st.success(f"✔️ Sucesso! Processo {id_str} (Obra: {new_obra}) cadastrado com sucesso.")
                             st.session_state.menu_option = "Dashboard Geral"
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Erro ao gravar no Supabase: {str(e)}")
+                            st.error(f"❌ Erro ao cadastrar registro: {str(e)}")
 
+    # ==========================================================================
     # PAGE 3: GERENCIAMENTO E EDIÇÃO DE REGISTROS
+    # ==========================================================================
     elif st.session_state.menu_option == "Gerenciamento de Registros":
-        st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações (Supabase Real)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 class='styled-table-title'>✏️ Atualizar Status e Fluxos das Cotações</h3>", unsafe_allow_html=True)
         
         if df_current.empty:
-            st.warning("Nenhum dado disponível na base do Supabase para edição.")
+            st.warning("Nenhum dado disponível para edição.")
         else:
-            list_ids = [f"{item['ID_PGI']} - {item['cotacao']}" for item in db_data_current]
+            list_ids = [f"{item['ID_PGI']} - {item.get('obra', 'N/A')} - {item['cotacao']}" for item in db_data_current]
             
             selected_idx_default = 0
             if st.session_state.selected_pgi_to_edit:
@@ -912,13 +910,18 @@ else:
                 with st.form("edit_record_form"):
                     render_html(f"""
                         <div style="background-color: #F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
-                            <strong>Editando Registro Ativo:</strong> ID_PGI {item['ID_PGI']} | {item['cotacao']}
+                            <strong>Editando Registro:</strong> ID_PGI {item['ID_PGI']} | Obra Atual: {item.get('obra', 'N/A')} | {item['cotacao']}
                         </div>
                     """)
                     
                     col_e1, col_e2, col_e3 = st.columns(3)
                     with col_e1:
                         st.markdown("<strong style='color:#00205B;'>Dados do Processo</strong>", unsafe_allow_html=True)
+                        
+                        obra_atual = str(item.get("obra", "N/A")).strip().upper()
+                        idx_obra = lista_obras_dynamic.index(obra_atual) if obra_atual in lista_obras_dynamic else 0
+                        edit_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic, index=idx_obra)
+                        
                         edit_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS, index=LISTA_TIPOS.index(item["tipo"]) if "tipo" in item and item["tipo"] in LISTA_TIPOS else 0)
                         edit_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES, index=LISTA_COMPRADORES.index(item["Comprador"]) if "Comprador" in item and item["Comprador"] in LISTA_COMPRADORES else 0)
                         
@@ -943,7 +946,7 @@ else:
                     with col_e3:
                         st.markdown("<strong style='color:#00205B;'>Sistemas & Auditoria</strong>", unsafe_allow_html=True)
                         edit_req_val = str(item.get("req_mega", "aguardando"))
-                        edit_req = st.text_input("Abertura Reclamação/RM (Mega) - Nº Inteiro", value=edit_req_val, help="Digite o número inteiro do processo ou 'aguardando'/'N/A'")
+                        edit_req = st.text_input("Abertura Reclamação/RM (Mega) - Nº Inteiro", value=edit_req_val, help="Digite o número inteiro ou 'aguardando'/'N/A'")
                         
                         edit_contr_val = str(item.get("contr_mega", "aguardando"))
                         edit_contr = st.text_input("Contrato Mega - Nº Inteiro", value=edit_contr_val, help="Digite o número do Contrato MEGA ou 'aguardando'/'N/A'")
@@ -969,6 +972,7 @@ else:
                             st.stop()
                             
                         updated_fields = {
+                            "obra": str(edit_obra),
                             "DT_EMISSAO": str(edit_dt_emissao),
                             "tipo": str(edit_tipo),
                             "Comprador": str(edit_comprador),
@@ -992,47 +996,105 @@ else:
                         }
                         
                         if not sb_client:
-                            st.error("❌ Supabase desconectado. Operação não permitida.")
+                            st.error("❌ Conexão indisponível. Operação não permitida.")
                         else:
                             try:
                                 updated_fields["ID_PGI"] = selected_id
                                 sb_client.update_list_item(selected_id, updated_fields, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
                                 st.cache_data.clear()
-                                st.success("✔️ Registro atualizado com sucesso no Supabase!")
+                                st.success("✔️ Registro atualizado com sucesso!")
                                 st.session_state.menu_option = "Dashboard Geral"
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Erro ao atualizar no Supabase: {str(e)}")
+                                st.error(f"❌ Erro ao atualizar registro: {str(e)}")
 
-    # PAGE 4: GESTÃO DE USUÁRIOS E ACESSOS (EXCLUSIVO PARA ADMINISTRADORES)
+    # ==========================================================================
+    # PAGE 4: GESTÃO DE OBRAS (EXCLUSIVO ADMINISTRADOR)
+    # ==========================================================================
+    elif st.session_state.menu_option == "Gestão de Obras (Admin)":
+        is_admin = st.session_state.get("user_perfil") == "administrador"
+        if not is_admin:
+            st.error("🔒 **Acesso Negado:** Apenas Administradores têm permissão para acessar este módulo.")
+            st.stop()
+
+        st.markdown("<h3 class='styled-table-title'>🏗️ Gestão de Obras e Associação de Processos</h3>", unsafe_allow_html=True)
+        
+        tab_vincular, tab_obras_cad = st.tabs(["🔗 Associar Obra ao ID PGI", "➕ Cadastrar / Listar Obras"])
+        
+        with tab_vincular:
+            st.markdown("<strong style='color:#00205B;'>Associação Rápida de Obra por Processo</strong>", unsafe_allow_html=True)
+            if df_current.empty:
+                st.info("Nenhum processo cadastrado para associar obras.")
+            else:
+                col_vo1, col_vo2 = st.columns([1.5, 1.5])
+                with col_vo1:
+                    list_pgi_select = [f"{it['ID_PGI']} - Obra Atual: {it.get('obra', 'N/A')} ({it['cotacao']})" for it in db_data_current]
+                    sel_pgi_vinc = st.selectbox("Selecione o Processo (ID PGI)", list_pgi_select)
+                with col_vo2:
+                    sel_nova_obra = st.selectbox("Selecione a Obra de Destino", lista_obras_dynamic)
+                
+                if st.button("💾 Atualizar Obra do Processo", use_container_width=True):
+                    id_alvo = sel_pgi_vinc.split(" - ")[0]
+                    try:
+                        sb_client.update_list_item(id_alvo, {"obra": sel_nova_obra}, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                        st.cache_data.clear()
+                        st.success(f"✔️ Obra '{sel_nova_obra}' associada com sucesso ao processo {id_alvo}!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao associar obra: {str(e)}")
+                        
+                st.write("---")
+                st.markdown("<strong style='color:#00205B;'>Processos Atualmente sem Obra Definida (N/A)</strong>", unsafe_allow_html=True)
+                df_sem_obra = df_current[df_current["obra"].isin(["N/A", "", "NONE"])]
+                if not df_sem_obra.empty:
+                    st.dataframe(df_sem_obra[["ID_PGI", "tipo", "Comprador", "cotacao"]], use_container_width=True)
+                else:
+                    st.success("🎉 Todos os processos cadastrados possuem obras devidamente associadas!")
+
+        with tab_obras_cad:
+            col_cad1, col_cad2 = st.columns([1.5, 2])
+            with col_cad1:
+                st.markdown("<strong style='color:#00205B;'>Cadastrar Nova Obra</strong>", unsafe_allow_html=True)
+                with st.form("form_cad_obra"):
+                    nome_nova_obra = st.text_input("Nome da Obra (Ex: EDIFÍCIO LUMIÈRE)", placeholder="Digite o nome da obra...").strip().upper()
+                    cidade_obra = st.text_input("Cidade / UF (Opcional)", placeholder="Ex: Londrina / PR").strip()
+                    btn_cad_obra = st.form_submit_button("Cadastrar Obra")
+                    
+                    if btn_cad_obra:
+                        if not nome_nova_obra:
+                            st.error("O nome da obra é obrigatório.")
+                        elif nome_nova_obra in lista_obras_dynamic:
+                            st.warning(f"A obra '{nome_nova_obra}' já está cadastrada.")
+                        else:
+                            try:
+                                sb_client.insert_list_item({"nome_obra": nome_nova_obra, "cidade": cidade_obra}, list_name="dSUPRI_Obras")
+                                st.cache_data.clear()
+                                st.success(f"✔️ Obra '{nome_nova_obra}' cadastrada com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao cadastrar obra: {str(e)}")
+            
+            with col_cad2:
+                st.markdown("<strong style='color:#00205B;'>Obras Cadastradas no Sistema</strong>", unsafe_allow_html=True)
+                df_obras_view = pd.DataFrame({"Nome da Obra": lista_obras_dynamic})
+                st.dataframe(df_obras_view, use_container_width=True, height=280)
+
+    # ==========================================================================
+    # PAGE 5: GESTÃO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR)
+    # ==========================================================================
     elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
         is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
-            st.error("🔒 **Acesso Negado:** Apenas usuários com perfil de **Administrador** possuem privilégio para acessar esta página.")
+            st.error("🔒 **Acesso Negado:** Apenas Administradores têm permissão para acessar este módulo.")
             st.stop()
 
-        st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários (Supabase Real)</h3>", unsafe_allow_html=True)
-        
-        if sb_client:
-            render_html("""
-                <div class="success-card">
-                    <h4>🟢 Conexão com o Supabase Ativa</h4>
-                    <p>Todos os cadastros e alterações de usuários serão salvos permanentemente na tabela <code>usuarios</code> do seu banco SQL.</p>
-                </div>
-            """)
-        else:
-            render_html("""
-                <div class="info-card" style="border-left-color: #DC3545;">
-                    <h4>🔴 Supabase Desconectado</h4>
-                    <p>Conecte o Supabase na aba de Integração para gerenciar contas de usuários na base de dados real.</p>
-                </div>
-            """)
+        st.markdown("<h3 class='styled-table-title'>👥 Gestão e Controle de Acessos de Usuários</h3>", unsafe_allow_html=True)
 
         lista_usuarios_atual = carregar_usuarios()
         df_users = pd.DataFrame(lista_usuarios_atual)
 
         if not df_users.empty:
-            st.markdown("<strong style='color:#00205B;'>Lista de Usuários Cadastrados no Banco SQL (usuarios)</strong>", unsafe_allow_html=True)
+            st.markdown("<strong style='color:#00205B;'>Usuários Cadastrados no Sistema</strong>", unsafe_allow_html=True)
             
             headers_users = ["Username / Login", "Nome Completo", "Perfil de Acesso", "Status da Conta"]
             u_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 20px;'>"
@@ -1073,10 +1135,10 @@ else:
                     new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
                 with col_u2:
                     new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
-                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores enxergam este painel e gerenciam acessos.")
+                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e acessos.")
                     new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
 
-                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário no Supabase")
+                submit_new_u = st.form_submit_button("💾 Salvar Novo Usuário")
 
                 if submit_new_u:
                     if not new_u_username or not new_u_nome or not new_u_senha:
@@ -1086,7 +1148,7 @@ else:
                         if new_u_username in existing_usernames:
                             st.error(f"❌ O username '{new_u_username}' já existe no sistema.")
                         elif not sb_client:
-                            st.error("❌ Supabase desconectado. Não foi possível salvar o usuário.")
+                            st.error("❌ Conexão indisponível.")
                         else:
                             user_payload = {
                                 "username": new_u_username,
@@ -1098,14 +1160,14 @@ else:
                             try:
                                 sb_client.insert_list_item(user_payload, list_name="usuarios")
                                 st.cache_data.clear()
-                                st.success(f"✔️ Usuário '{new_u_username}' ({new_u_nome}) cadastrado com sucesso no Supabase!")
+                                st.success(f"✔️ Usuário '{new_u_username}' cadastrado com sucesso!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Erro ao salvar usuário no Supabase: {str(e)}")
+                                st.error(f"❌ Erro ao salvar usuário: {str(e)}")
 
         with tab_edit:
             if not lista_usuarios_atual:
-                st.info("Nenhum usuário cadastrado na base real para edição.")
+                st.info("Nenhum usuário cadastrado para edição.")
             else:
                 user_options = [f"{u.get('username')} - {u.get('nome')} ({u.get('perfil')})" for u in lista_usuarios_atual]
                 selected_user_str = st.selectbox("Selecione o Usuário para Editar", user_options)
@@ -1133,13 +1195,13 @@ else:
                             )
                             edit_u_ativo = st.checkbox("Conta Ativa", value=bool(selected_u_dict.get("ativo", True)))
 
-                        submit_edit_u = st.form_submit_button("💾 Salvar Alterações do Usuário")
+                        submit_edit_u = st.form_submit_button("💾 Salvar Alterações")
 
                         if submit_edit_u:
                             if not edit_u_nome or not edit_u_senha:
                                 st.error("❌ Nome e Senha são campos obrigatórios.")
                             elif not sb_client:
-                                st.error("❌ Supabase desconectado. Não foi possível atualizar o usuário.")
+                                st.error("❌ Conexão indisponível.")
                             else:
                                 updated_u_payload = {
                                     "username": sel_username,
@@ -1156,67 +1218,7 @@ else:
                                         id_column="username"
                                     )
                                     st.cache_data.clear()
-                                    st.success(f"✔️ Dados do usuário '{sel_username}' atualizados com sucesso no Supabase!")
+                                    st.success(f"✔️ Usuário '{sel_username}' atualizado com sucesso!")
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(f"❌ Erro ao atualizar usuário no Supabase: {str(e)}")
-
-    # PAGE 5: PAINEL DE CONFIGURAÇÃO E TESTE DO SUPABASE
-    elif st.session_state.menu_option == "Integração Supabase":
-        st.markdown("<h3 class='styled-table-title'>⚡ Painel de Integração do Supabase (Banco SQL de Alta Performance)</h3>", unsafe_allow_html=True)
-        
-        render_html("""
-            <div class="info-card">
-                <strong>🚀 Banco de Dados SQL de Alta Performance:</strong> Configure a sua <code>SUPABASE_URL</code> e a sua <code>SUPABASE_KEY</code> (chave anon/public) abaixo ou através da aba <strong>Secrets</strong> do Streamlit Cloud.
-            </div>
-        """)
-        
-        with st.form("supabase_config_form"):
-            st.markdown("<strong style='color:#00205B;'>Credenciais de Acesso do Projeto Supabase</strong>", unsafe_allow_html=True)
-            cfg_sb_url = st.text_input("Supabase Project URL", value=st.session_state.sb_url, placeholder="Ex: https://xyzcompany.supabase.co")
-            cfg_sb_key = st.text_input("Supabase Anon / API Key", value=st.session_state.sb_key, type="password", placeholder="Ex: eyJhbGciOiJIUzI1NiI...")
-            
-            test_sb_conn = st.form_submit_button("⚡ Validar e Conectar ao Supabase")
-            
-            if test_sb_conn:
-                if not cfg_sb_url or not cfg_sb_key:
-                    st.error("❌ A URL do Projeto e a Chave API são obrigatórias.")
-                else:
-                    with st.spinner("Testando conexão em tempo real com o Supabase..."):
-                        try:
-                            temp_sb = SupabaseClient(url=cfg_sb_url, key=cfg_sb_key)
-                            temp_sb.connect()
-                            
-                            st.session_state.sb_url = cfg_sb_url
-                            st.session_state.sb_key = cfg_sb_key
-                            st.cache_data.clear()
-                            st.success("✔️ Conexão com o Supabase estabelecida com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Falha ao conectar ao Supabase: {str(e)}")
-                            
-        if sb_client:
-            render_html(f"""
-                <div class="success-card">
-                    <h4>✅ Conectado ao Supabase com Sucesso!</h4>
-                    <p><strong>Project URL:</strong> <code>{st.session_state.sb_url}</code></p>
-                    <p>O aplicativo está operando 100% integrado à base de dados real do PostgreSQL.</p>
-                </div>
-            """)
-            if st.button("🔌 Desconectar Supabase", use_container_width=True):
-                st.session_state.sb_url = ""
-                st.session_state.sb_key = ""
-                st.cache_data.clear()
-                st.rerun()
-                
-        st.write("")
-        st.markdown("<h3 class='styled-table-title'>📐 Estrutura das Tabelas no Supabase (SQL Editor)</h3>", unsafe_allow_html=True)
-        
-        render_html("""
-        <div class="info-card">
-            <h4>📍 Nomes das Tabelas Ativas no Supabase:</h4>
-            <p>1. <code>PGI_GestaoCotacoes</code> (Armazena as colunas de acompanhamento de cotações e o ID_PGI como Chave Primária)</p>
-            <p>2. <code>dSUPRI_GruposInsumo</code> (Armazena os nomes dos grupos de insumo)</p>
-            <p>3. <code>usuarios</code> (Armazena os logins, nomes, senhas, perfis e status de ativação)</p>
-        </div>
-        """)
+                                    st.error(f"❌ Erro ao atualizar usuário: {str(e)}")

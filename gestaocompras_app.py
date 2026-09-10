@@ -142,7 +142,6 @@ def format_buyer_name(name_str):
     return f"{first} {last[0].upper()}."
 
 def parse_bool_safe(val):
-    """Converte com segurança valores variados para booleano real."""
     if isinstance(val, bool):
         return val
     if isinstance(val, (int, float)):
@@ -339,9 +338,24 @@ if "confirm_delete_id" not in st.session_state:
     st.session_state.confirm_delete_id = None
 if "user_perfil" not in st.session_state:
     st.session_state.user_perfil = "comprador"
+if "autofit_cols" not in st.session_state:
+    st.session_state.autofit_cols = False
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+
+# --- CAPTURA DE AÇÕES RÁPIDAS POR LINK DA TABELA (QUERY PARAMS) ---
+if "action" in st.query_params and "id" in st.query_params:
+    action_type = st.query_params.get("action")
+    target_id = str(st.query_params.get("id")).strip()
+    st.query_params.clear()
+    if action_type == "edit":
+        st.session_state.selected_pgi_to_edit = target_id
+        st.session_state.menu_option = "Gerenciamento de Registros"
+        st.rerun()
+    elif action_type == "del":
+        st.session_state.confirm_delete_id = target_id
+        st.rerun()
 
 # --- CLIENTE SUPABASE ---
 sb_client = None
@@ -451,7 +465,7 @@ def carregar_obras():
     obras = sorted(list(set(obras)))
     return obras if obras else LISTA_FALLBACK_OBRAS
 
-# --- CARREGAMENTO DINÂMICO DE DADOS (COM O NOVO CAMPO 'CONCLUIDO') ---
+# --- CARREGAMENTO DINÂMICO DE DADOS ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -483,7 +497,7 @@ def carregar_dados():
                     "credenciamento": str(item.get("credenciamento", "N/A")),
                     "comunicar": str(item.get("comunicar", "N/A")),
                     "aud_pasta": str(item.get("aud_pasta", "aguardando")),
-                    "concluido": parse_bool_safe(item.get("concluido", False))  # Flag de conclusão oficial
+                    "concluido": parse_bool_safe(item.get("concluido", False))
                 })
             return dados_mapeados
         except Exception:
@@ -584,7 +598,7 @@ else:
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
 
-    # Sidebar com bloco de usuário de alto contraste
+    # Sidebar
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
         render_html(f"""
@@ -647,7 +661,7 @@ else:
 
     # CONFIRMAÇÃO DE EXCLUSÃO
     if st.session_state.confirm_delete_id:
-        st.warning(f"⚠️ **Confirmação:** Deseja realmente excluir o processo de ID PGI **{st.session_state.confirm_delete_id}**?")
+        st.warning(f"⚠️ **Confirmação:** Deseja realmente excluir permanentemente o processo de ID PGI **{st.session_state.confirm_delete_id}**?")
         col_yes, col_no = st.columns([1, 10])
         with col_yes:
             if st.button("✅ Sim, Excluir", key="confirm_yes_btn"):
@@ -661,7 +675,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL COM INDICADORES BASEADOS NO FLAG 'CONCLUÍDO'
+    # PAGE 1: DASHBOARD GERAL
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -669,7 +683,6 @@ else:
         df_calc = df_current.copy()
         if not df_calc.empty:
             total_processos = len(df_calc)
-            # CRITÉRIO OFICIAL: O processo é finalizado pelo flag 'concluido'
             total_finalizados = len(df_calc[df_calc["concluido"] == True])
             total_em_andamento = len(df_calc[df_calc["concluido"] == False])
             taxa_conclusao = (total_finalizados / total_processos * 100) if total_processos > 0 else 0.0
@@ -708,13 +721,24 @@ else:
                 </div>
             """)
         
-        # --- FILTROS RESTRITOS: ID, COMPRADOR, GRUPO DE INSUMO, OBRA ---
-        with st.expander("🔍 Filtros de Pesquisa por Processo", expanded=False):
+        # --- FILTROS DE PESQUISA (COM NOVO FILTRO DE STATUS 'EM ANDAMENTO' / 'CONCLUÍDOS') ---
+        with st.expander("🔍 Filtros Avançados de Processos", expanded=False):
             def get_filter_options(df, column_name):
                 if df.empty or column_name not in df.columns:
                     return ["Todos"]
                 unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if str(v).strip()])
                 return ["Todos"] + unique_vals
+
+            # NOVO BOTÃO DE FILTRO DE STATUS (EM ANDAMENTO / CONCLUÍDOS / TODOS)
+            st.markdown("<strong>Status do Processo:</strong>", unsafe_allow_html=True)
+            status_filtro = st.radio(
+                "Filtrar por Status de Conclusão",
+                ["Todos", "⏳ Em andamento", "✅ Concluídos"],
+                horizontal=True,
+                index=0,
+                label_visibility="collapsed"
+            )
+            st.write("")
 
             col_f1, col_f2, col_f3, col_f4 = st.columns(4)
             with col_f1:
@@ -732,6 +756,13 @@ else:
 
         df_filtered = df_current.copy()
         if not df_filtered.empty:
+            # Aplica o filtro de status
+            if status_filtro == "⏳ Em andamento":
+                df_filtered = df_filtered[df_filtered["concluido"] == False]
+            elif status_filtro == "✅ Concluídos":
+                df_filtered = df_filtered[df_filtered["concluido"] == True]
+
+            # Aplica os filtros de coluna
             if f_id != "Todos":
                 df_filtered = df_filtered[df_filtered["ID_PGI"].astype(str).str.contains(f_id, case=False, na=False)]
             if f_comprador != "Todos":
@@ -741,19 +772,20 @@ else:
             if f_obra != "Todos":
                 df_filtered = df_filtered[df_filtered["obra"].astype(str).str.contains(f_obra, case=False, na=False)]
 
-        col_header_tb1, col_header_tb2 = st.columns([2.5, 1.5])
+        col_header_tb1, col_header_tb2 = st.columns([2.2, 1.8])
         with col_header_tb1:
             st.markdown("<h3 class='styled-table-title'>📋 Gestão Consolidada de Processos de Cotação</h3>", unsafe_allow_html=True)
         with col_header_tb2:
+            # PADRÃO ALTERADO: VISÃO DE BADGES É O ÍNDICE 0
             modo_visualizacao = st.radio(
                 "Modo de Visualização:",
-                ["📝 Planilha Interativa (Excel)", "👁️ Tabela Visual (Badges)"],
+                ["👁️ Tabela Visual (Badges)", "📝 Planilha Interativa (Excel)"],
                 horizontal=True,
+                index=0,
                 label_visibility="collapsed"
             )
 
         if not df_filtered.empty:
-            # Lista de colunas oficiais com 'concluido' como o último elemento
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
                 "orcamento", "due_dilligence", "equalizacao", "validacao_eng",
@@ -769,117 +801,18 @@ else:
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: PLANILHA INTERATIVA (EXCEL) COM CHECKBOX DE CONCLUÍDO
+            # MODO 1: TABELA VISUAL (PADRÃO) COM ÍCONES DE AÇÃO POR LINHA (✏️ e 🗑️)
             # ==================================================================
-            if modo_visualizacao == "📝 Planilha Interativa (Excel)":
-                render_html("""
-                    <div style="background-color:#F4F6F9; padding: 10px 14px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
-                        💡 <strong>Modo Planilha Ativo:</strong> Altere células diretamente e use a caixa de seleção da coluna <strong>Concluído</strong> para finalizar o processo. Ao terminar, clique em <strong>"💾 Salvar Alterações da Planilha"</strong>.
-                    </div>
-                """)
-
-                opcoes_obras = sorted(list(set(lista_obras_dynamic + [str(x) for x in df_edit_view["obra"].unique() if str(x).strip()])))
-                opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
-                opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
-                
-                configuracao_colunas = {
-                    "ID_PGI": st.column_config.TextColumn("ID PGI", disabled=True, width="small"),
-                    "obra": st.column_config.SelectboxColumn("Obra", options=opcoes_obras, required=True, width="medium"),
-                    "tipo": st.column_config.SelectboxColumn("Tipo", options=LISTA_TIPOS, required=True, width="small"),
-                    "Comprador": st.column_config.SelectboxColumn("Comprador", options=opcoes_compradores, required=True, width="medium"),
-                    "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width="medium"),
-                    "cotacao": st.column_config.TextColumn("Escopo / Cotação", width="large"),
-                    "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width="small"),
-                    "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width="small"),
-                    "equalizacao": st.column_config.SelectboxColumn("Equaliz.", options=OPCOES_STATUS, width="small"),
-                    "validacao_eng": st.column_config.SelectboxColumn("Valid. Eng.", options=OPCOES_STATUS, width="small"),
-                    "validacao_ger": st.column_config.SelectboxColumn("Valid. Ger.", options=OPCOES_STATUS, width="small"),
-                    "validacao_sup": st.column_config.SelectboxColumn("Valid. Sup.", options=OPCOES_STATUS, width="small"),
-                    "req_mega": st.column_config.TextColumn("Abertura RM", width="small"),
-                    "contr_mega": st.column_config.TextColumn("Contrato Mega", width="small"),
-                    "param_fiscal": st.column_config.SelectboxColumn("Param. Fiscal", options=OPCOES_STATUS, width="small"),
-                    "minuta": st.column_config.SelectboxColumn("Minuta", options=OPCOES_STATUS, width="small"),
-                    "ass_digital": st.column_config.SelectboxColumn("Ass. Digital", options=OPCOES_STATUS, width="small"),
-                    "credenciamento": st.column_config.SelectboxColumn("Credenc. GT", options=OPCOES_STATUS, width="small"),
-                    "comunicar": st.column_config.SelectboxColumn("Informar Eng.", options=OPCOES_STATUS, width="small"),
-                    "aud_pasta": st.column_config.SelectboxColumn("Audit. Pasta", options=OPCOES_STATUS, width="small"),
-                    # Novo Flag Concluído como Checkbox interativo
-                    "concluido": st.column_config.CheckboxColumn("Concluído", help="Marque para finalizar oficialmente o processo", default=False, width="small")
-                }
-
-                df_editado_usuario = st.data_editor(
-                    df_edit_view,
-                    column_config=configuracao_colunas,
-                    use_container_width=True,
-                    num_rows="fixed",
-                    hide_index=True,
-                    key="editor_planilha_dashboard",
-                    height=520
-                )
-
-                col_btn_salvar, col_btn_espaco = st.columns([2, 5])
-                with col_btn_salvar:
-                    if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
-                        alteracoes_detectadas = 0
-                        with st.spinner("Sincronizando alterações..."):
-                            for idx, row_edit in df_editado_usuario.iterrows():
-                                row_orig = df_edit_view.loc[idx]
-                                diff_dict = {}
-                                for col_name in colunas_oficiais:
-                                    if col_name != "ID_PGI":
-                                        val_orig = row_orig[col_name]
-                                        val_edit = row_edit[col_name]
-                                        
-                                        # Comparação para booleano
-                                        if col_name == "concluido":
-                                            if bool(val_orig) != bool(val_edit):
-                                                diff_dict["concluido"] = bool(val_edit)
-                                        else:
-                                            if str(val_orig).strip() != str(val_edit).strip():
-                                                diff_dict[col_name] = str(val_edit).strip()
-                                            
-                                if diff_dict:
-                                    pgi_alvo = str(row_edit["ID_PGI"]).strip()
-                                    try:
-                                        sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
-                                        alteracoes_detectadas += 1
-                                    except Exception as err:
-                                        st.error(f"Erro ao atualizar ID {pgi_alvo}: {str(err)}")
-                                        
-                        if alteracoes_detectadas > 0:
-                            st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
-                            st.rerun()
-                        else:
-                            st.info("ℹ️ Nenhuma alteração foi detectada na planilha.")
-
-            # ==================================================================
-            # MODO 2: VISUALIZAÇÃO COM BADGES COLORIDOS
-            # ==================================================================
-            else:
-                st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar em formulário ou Excluir o registro.</div>", unsafe_allow_html=True)
-                col_ac1, col_ac2, col_ac3 = st.columns([2, 1, 1])
-                with col_ac1:
-                    action_pgi = st.selectbox("Selecione um Processo (ID PGI) para agir:", [""] + sorted(list(df_filtered["ID_PGI"].astype(str).unique())), label_visibility="collapsed")
-                with col_ac2:
-                    if st.button("✏️ Editar Registro", use_container_width=True, disabled=not action_pgi):
-                        st.session_state.selected_pgi_to_edit = action_pgi
-                        st.session_state.menu_option = "Gerenciamento de Registros"
-                        st.rerun()
-                with col_ac3:
-                    if st.button("🗑️ Excluir Registro", use_container_width=True, disabled=not action_pgi):
-                        st.session_state.confirm_delete_id = action_pgi
-                        st.rerun()
-
+            if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
-                    "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
+                    "Ações", "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                     "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
                     "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
                     "Credenc. GT", "Informar Eng.", "Audit. Pasta", "Status Processo"
                 ]
                 
-                table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
-                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2400px;'>"
+                table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 6px;'>"
+                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2500px;'>"
                 table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
                 table_html += "<tr>"
                 for h in headers:
@@ -890,6 +823,14 @@ else:
                 
                 for index, row in df_filtered.iterrows():
                     table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
+                    
+                    # COLUNA DE AÇÕES COM ÍCONES DIRETOS POR LINHA
+                    table_html += f"""
+                    <td style='padding: 6px 10px; text-align: center; white-space: nowrap; border: 1px solid #F4F6F9;'>
+                        <a href='?action=edit&id={row['ID_PGI']}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 5px; display: inline-block;' title='Editar Registro'>✏️</a>
+                        <a href='?action=del&id={row['ID_PGI']}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #FCE8E8; border: 1px solid #DC3545; border-radius: 4px; font-size: 12px; display: inline-block;' title='Excluir Registro'>🗑️</a>
+                    </td>
+                    """
                     
                     table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
@@ -920,6 +861,102 @@ else:
                 
                 table_html += "</tbody></table></div>"
                 st.markdown(table_html, unsafe_allow_html=True)
+
+            # ==================================================================
+            # MODO 2: PLANILHA INTERATIVA (EXCEL) COM BOTÃO AUTOFILL
+            # ==================================================================
+            else:
+                col_info_plan, col_btn_autofit = st.columns([3, 1.2])
+                with col_info_plan:
+                    render_html("""
+                        <div style="background-color:#F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; font-size: 12px;">
+                            💡 <strong>Modo Planilha Ativo:</strong> Edite células diretamente. Ao concluir, clique no botão <strong>"💾 Salvar Alterações da Planilha"</strong>.
+                        </div>
+                    """)
+                with col_btn_autofit:
+                    txt_btn_autofit = "🔄 Restaurar Largura Padrão" if st.session_state.autofit_cols else "↔️ Ajustar Largura (Autofill)"
+                    if st.button(txt_btn_autofit, use_container_width=True):
+                        st.session_state.autofit_cols = not st.session_state.autofit_cols
+                        st.rerun()
+
+                opcoes_obras = sorted(list(set(lista_obras_dynamic + [str(x) for x in df_edit_view["obra"].unique() if str(x).strip()])))
+                opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
+                opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
+                
+                # Se autofit estiver ativo, as larguras ficam sem restrições fixas (None)
+                is_autofit = st.session_state.autofit_cols
+                w_s = None if is_autofit else "small"
+                w_m = None if is_autofit else "medium"
+                w_l = None if is_autofit else "large"
+
+                configuracao_colunas = {
+                    "ID_PGI": st.column_config.TextColumn("ID PGI", disabled=True, width=w_s),
+                    "obra": st.column_config.SelectboxColumn("Obra", options=opcoes_obras, required=True, width=w_m),
+                    "tipo": st.column_config.SelectboxColumn("Tipo", options=LISTA_TIPOS, required=True, width=w_s),
+                    "Comprador": st.column_config.SelectboxColumn("Comprador", options=opcoes_compradores, required=True, width=w_m),
+                    "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width=w_m),
+                    "cotacao": st.column_config.TextColumn("Escopo / Cotação", width=w_l),
+                    "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width=w_s),
+                    "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width=w_s),
+                    "equalizacao": st.column_config.SelectboxColumn("Equaliz.", options=OPCOES_STATUS, width=w_s),
+                    "validacao_eng": st.column_config.SelectboxColumn("Valid. Eng.", options=OPCOES_STATUS, width=w_s),
+                    "validacao_ger": st.column_config.SelectboxColumn("Valid. Ger.", options=OPCOES_STATUS, width=w_s),
+                    "validacao_sup": st.column_config.SelectboxColumn("Valid. Sup.", options=OPCOES_STATUS, width=w_s),
+                    "req_mega": st.column_config.TextColumn("Abertura RM", width=w_s),
+                    "contr_mega": st.column_config.TextColumn("Contrato Mega", width=w_s),
+                    "param_fiscal": st.column_config.SelectboxColumn("Param. Fiscal", options=OPCOES_STATUS, width=w_s),
+                    "minuta": st.column_config.SelectboxColumn("Minuta", options=OPCOES_STATUS, width=w_s),
+                    "ass_digital": st.column_config.SelectboxColumn("Ass. Digital", options=OPCOES_STATUS, width=w_s),
+                    "credenciamento": st.column_config.SelectboxColumn("Credenc. GT", options=OPCOES_STATUS, width=w_s),
+                    "comunicar": st.column_config.SelectboxColumn("Informar Eng.", options=OPCOES_STATUS, width=w_s),
+                    "aud_pasta": st.column_config.SelectboxColumn("Audit. Pasta", options=OPCOES_STATUS, width=w_s),
+                    "concluido": st.column_config.CheckboxColumn("Concluído", help="Marque para finalizar o processo", default=False, width=w_s)
+                }
+
+                df_editado_usuario = st.data_editor(
+                    df_edit_view,
+                    column_config=configuracao_colunas,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    hide_index=True,
+                    key="editor_planilha_dashboard",
+                    height=520
+                )
+
+                col_btn_salvar, col_btn_espaco = st.columns([2, 5])
+                with col_btn_salvar:
+                    if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
+                        alteracoes_detectadas = 0
+                        with st.spinner("Sincronizando alterações..."):
+                            for idx, row_edit in df_editado_usuario.iterrows():
+                                row_orig = df_edit_view.loc[idx]
+                                diff_dict = {}
+                                for col_name in colunas_oficiais:
+                                    if col_name != "ID_PGI":
+                                        val_orig = row_orig[col_name]
+                                        val_edit = row_edit[col_name]
+                                        
+                                        if col_name == "concluido":
+                                            if bool(val_orig) != bool(val_edit):
+                                                diff_dict["concluido"] = bool(val_edit)
+                                        else:
+                                            if str(val_orig).strip() != str(val_edit).strip():
+                                                diff_dict[col_name] = str(val_edit).strip()
+                                            
+                                if diff_dict:
+                                    pgi_alvo = str(row_edit["ID_PGI"]).strip()
+                                    try:
+                                        sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                                        alteracoes_detectadas += 1
+                                    except Exception as err:
+                                        st.error(f"Erro ao atualizar ID {pgi_alvo}: {str(err)}")
+                                        
+                        if alteracoes_detectadas > 0:
+                            st.cache_data.clear()
+                            st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
+                            st.rerun()
+                        else:
+                            st.info("ℹ️ Nenhuma alteração foi detectada na planilha.")
         else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
@@ -1066,7 +1103,6 @@ else:
                         edit_aud = st.selectbox("Audit. Pasta Final", OPCOES_STATUS, index=OPCOES_STATUS.index(item["aud_pasta"]) if item["aud_pasta"] in OPCOES_STATUS else 0)
                         
                         st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
-                        # Checkbox de conclusão oficial do processo no formulário
                         edit_concluido = st.checkbox("🚩 Processo Finalizado / Concluído", value=bool(item.get("concluido", False)))
                     
                     st.write("")

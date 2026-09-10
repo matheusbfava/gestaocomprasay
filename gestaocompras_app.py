@@ -127,7 +127,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- FUNÇÃO DE NORMALIZAÇÃO DE COMPRADORES ---
+# --- FUNÇÕES DE AUXÍLIO E NORMALIZAÇÃO ---
 def format_buyer_name(name_str):
     if not name_str:
         return ""
@@ -140,6 +140,15 @@ def format_buyer_name(name_str):
     first = parts[0]
     last = parts[-1]
     return f"{first} {last[0].upper()}."
+
+def parse_bool_safe(val):
+    """Converte com segurança valores variados para booleano real."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    val_str = str(val).strip().lower()
+    return val_str in ["true", "t", "1", "sim", "yes", "ok"]
 
 
 # Estilização CSS institucional da Marca A.Yoshii
@@ -283,7 +292,7 @@ def get_logo_svg(theme="dark", width=145, height=30):
     text_color = "#FFFFFF" if theme == "dark" else "#00205B"
     return f'<svg width="{width}" height="{height}" viewBox="0 0 220 45" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><rect x="2" y="2" width="41" height="41" rx="4" fill="#FF6F00" /><circle cx="22.5" cy="22.5" r="17.5" fill="#FFFFFF" /><circle cx="22.5" cy="22.5" r="15" fill="#00205B" /><path d="M 16,29 L 21.5,14 L 23.5,14 L 29,29" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="18.5" y1="23.5" x2="26.5" y2="23.5" stroke="#FFFFFF" stroke-width="2.5" /><path d="M 25.5,23.5 L 29,31.5" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" /><text x="52" y="32" font-family="Helvetica, Arial, sans-serif" font-size="23" font-weight="900" fill="{text_color}" letter-spacing="1">A.YOSHII</text></svg>'
 
-# --- CRIAÇÃO DOS DROPDOWNS OFICIAIS DO CLIENTE ---
+# --- DROPDOWNS OFICIAIS ---
 LISTA_COMPRADORES = [
     "Leonardo F.", "Bruno C.", "Caio S.", "Heloysa C.", "Angelica F.", "Fernanda L.",
     "Flaviane F.", "Marcos T.", "Erik G.", "Aline D.", "Evelise D.", "Lorena P.",
@@ -317,7 +326,7 @@ LISTA_FALLBACK_OBRAS = [
 LISTA_TIPOS = ["Novo", "Aditivo"]
 OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
-# --- CONFIGURAÇÕES DE INTEGRAÇÃO ---
+# --- SESSÃO E CONFIGURAÇÕES ---
 if "sb_url" not in st.session_state:
     st.session_state.sb_url = st.secrets.get("SUPABASE_URL", st.secrets.get("supabase_url", ""))
 if "sb_key" not in st.session_state:
@@ -331,11 +340,10 @@ if "confirm_delete_id" not in st.session_state:
 if "user_perfil" not in st.session_state:
     st.session_state.user_perfil = "comprador"
 
-# --- SESSÃO DE AUTENTICAÇÃO DO USUÁRIO ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# --- INSTANCIAÇÃO DO CLIENTE ---
+# --- CLIENTE SUPABASE ---
 sb_client = None
 if st.session_state.sb_url and st.session_state.sb_key:
     try:
@@ -344,10 +352,10 @@ if st.session_state.sb_url and st.session_state.sb_key:
             key=st.session_state.sb_key
         )
         sb_client.connect()
-    except Exception as e:
+    except Exception:
         sb_client = None
 
-# --- CARREGAMENTO DINÂMICO DE USUÁRIOS (COM CACHE) ---
+# --- CARREGAMENTO DE USUÁRIOS ---
 @st.cache_data(ttl=60)
 def carregar_usuarios():
     if sb_client:
@@ -402,7 +410,7 @@ def logout():
     st.session_state.pop("user_perfil", None)
     st.rerun()
 
-# --- CARREGAMENTO DINÂMICO DOS GRUPOS DE INSUMO ---
+# --- CARREGAMENTO DE GRUPOS E OBRAS ---
 @st.cache_data(ttl=300)
 def carregar_grupos_insumo():
     if sb_client:
@@ -421,7 +429,6 @@ def carregar_grupos_insumo():
             
     return LISTA_FALLBACK_GRUPO_INSUMO
 
-# --- CARREGAMENTO DINÂMICO DAS OBRAS ---
 @st.cache_data(ttl=300)
 def carregar_obras_detalhadas():
     if sb_client:
@@ -444,7 +451,7 @@ def carregar_obras():
     obras = sorted(list(set(obras)))
     return obras if obras else LISTA_FALLBACK_OBRAS
 
-# --- SEÇÃO DE CARREGAMENTO DINÂMICO DE DADOS ---
+# --- CARREGAMENTO DINÂMICO DE DADOS (COM O NOVO CAMPO 'CONCLUIDO') ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     if sb_client:
@@ -475,7 +482,8 @@ def carregar_dados():
                     "ass_digital": str(item.get("ass_digital", "aguardando")),
                     "credenciamento": str(item.get("credenciamento", "N/A")),
                     "comunicar": str(item.get("comunicar", "N/A")),
-                    "aud_pasta": str(item.get("aud_pasta", "aguardando"))
+                    "aud_pasta": str(item.get("aud_pasta", "aguardando")),
+                    "concluido": parse_bool_safe(item.get("concluido", False))  # Flag de conclusão oficial
                 })
             return dados_mapeados
         except Exception:
@@ -483,7 +491,7 @@ def carregar_dados():
     else:
         return []
 
-# --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL ---
+# --- VERIFICAÇÃO DE UNICIDADE ---
 def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
     if not sb_client:
         return False
@@ -497,7 +505,7 @@ def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
         pass
     return False
 
-# --- FUNÇÃO PARA EXCLUIR REGISTRO ---
+# --- EXCLUSÃO DE REGISTRO ---
 def excluir_registro(pgi_id):
     if sb_client:
         try:
@@ -522,6 +530,12 @@ def get_html_status_badge(status):
         return f'<span style="background-color:#EAF4FF; color:#00205B; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #00205B; display:inline-block;">{status_clean}</span>'
     else:
         return f'<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00; display:inline-block;">{status_clean.upper()}</span>'
+
+def get_html_concluido_badge(concluido_bool):
+    if concluido_bool:
+        return '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745; display:inline-block;">CONCLUÍDO</span>'
+    else:
+        return '<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00; display:inline-block;">EM ANDAMENTO</span>'
 
 
 # ==============================================================================
@@ -647,7 +661,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL COM PLANILHA INTERATIVA ESTILO EXCEL
+    # PAGE 1: DASHBOARD GERAL COM INDICADORES BASEADOS NO FLAG 'CONCLUÍDO'
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -655,8 +669,9 @@ else:
         df_calc = df_current.copy()
         if not df_calc.empty:
             total_processos = len(df_calc)
-            total_finalizados = len(df_calc[df_calc["aud_pasta"].astype(str).str.strip().str.upper() == "OK"])
-            total_em_andamento = total_processos - total_finalizados
+            # CRITÉRIO OFICIAL: O processo é finalizado pelo flag 'concluido'
+            total_finalizados = len(df_calc[df_calc["concluido"] == True])
+            total_em_andamento = len(df_calc[df_calc["concluido"] == False])
             taxa_conclusao = (total_finalizados / total_processos * 100) if total_processos > 0 else 0.0
         else:
             total_processos = total_finalizados = total_em_andamento = 0
@@ -681,7 +696,7 @@ else:
         with col_m3:
             render_html(f"""
                 <div class="metric-card-custom">
-                    <div class="metric-label">Processos Finalizados (Auditados)</div>
+                    <div class="metric-label">Processos Finalizados</div>
                     <div class="metric-value" style="color: #28A745;">{total_finalizados}</div>
                 </div>
             """)
@@ -738,38 +753,35 @@ else:
             )
 
         if not df_filtered.empty:
-            # Ordenação de colunas consistente
+            # Lista de colunas oficiais com 'concluido' como o último elemento
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
                 "orcamento", "due_dilligence", "equalizacao", "validacao_eng",
                 "validacao_ger", "validacao_sup", "req_mega", "contr_mega",
                 "param_fiscal", "minuta", "ass_digital", "credenciamento",
-                "comunicar", "aud_pasta"
+                "comunicar", "aud_pasta", "concluido"
             ]
             
-            # Garante que todas as colunas existem
             for col in colunas_oficiais:
                 if col not in df_filtered.columns:
-                    df_filtered[col] = "N/A"
+                    df_filtered[col] = False if col == "concluido" else "N/A"
                     
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: PLANILHA INTERATIVA ESTILO EXCEL (COM DROPDOWNS E VALIDAÇÕES)
+            # MODO 1: PLANILHA INTERATIVA (EXCEL) COM CHECKBOX DE CONCLUÍDO
             # ==================================================================
             if modo_visualizacao == "📝 Planilha Interativa (Excel)":
                 render_html("""
                     <div style="background-color:#F4F6F9; padding: 10px 14px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px; font-size: 13px;">
-                        💡 <strong>Modo Planilha Ativo:</strong> Clique diretamente sobre qualquer célula para editar ou selecionar opções nas listas suspensas. Ao concluir as alterações, clique no botão <strong>"💾 Salvar Alterações da Planilha"</strong> abaixo.
+                        💡 <strong>Modo Planilha Ativo:</strong> Altere células diretamente e use a caixa de seleção da coluna <strong>Concluído</strong> para finalizar o processo. Ao terminar, clique em <strong>"💾 Salvar Alterações da Planilha"</strong>.
                     </div>
                 """)
 
-                # Garante que as opções dos dropdowns incluem os valores existentes para evitar inconsistências
                 opcoes_obras = sorted(list(set(lista_obras_dynamic + [str(x) for x in df_edit_view["obra"].unique() if str(x).strip()])))
                 opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
                 opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
                 
-                # Configurações de colunas com listas suspensas e campos fixos
                 configuracao_colunas = {
                     "ID_PGI": st.column_config.TextColumn("ID PGI", disabled=True, width="small"),
                     "obra": st.column_config.SelectboxColumn("Obra", options=opcoes_obras, required=True, width="medium"),
@@ -791,9 +803,10 @@ else:
                     "credenciamento": st.column_config.SelectboxColumn("Credenc. GT", options=OPCOES_STATUS, width="small"),
                     "comunicar": st.column_config.SelectboxColumn("Informar Eng.", options=OPCOES_STATUS, width="small"),
                     "aud_pasta": st.column_config.SelectboxColumn("Audit. Pasta", options=OPCOES_STATUS, width="small"),
+                    # Novo Flag Concluído como Checkbox interativo
+                    "concluido": st.column_config.CheckboxColumn("Concluído", help="Marque para finalizar oficialmente o processo", default=False, width="small")
                 }
 
-                # Componente nativo de edição em planilha
                 df_editado_usuario = st.data_editor(
                     df_edit_view,
                     column_config=configuracao_colunas,
@@ -807,18 +820,23 @@ else:
                 col_btn_salvar, col_btn_espaco = st.columns([2, 5])
                 with col_btn_salvar:
                     if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
-                        # Detecta linhas com alterações entre o original e o editado
                         alteracoes_detectadas = 0
-                        with st.spinner("Sincronizando alterações com a base de dados..."):
+                        with st.spinner("Sincronizando alterações..."):
                             for idx, row_edit in df_editado_usuario.iterrows():
                                 row_orig = df_edit_view.loc[idx]
                                 diff_dict = {}
                                 for col_name in colunas_oficiais:
                                     if col_name != "ID_PGI":
-                                        val_orig = str(row_orig[col_name]).strip()
-                                        val_edit = str(row_edit[col_name]).strip()
-                                        if val_orig != val_edit:
-                                            diff_dict[col_name] = val_edit
+                                        val_orig = row_orig[col_name]
+                                        val_edit = row_edit[col_name]
+                                        
+                                        # Comparação para booleano
+                                        if col_name == "concluido":
+                                            if bool(val_orig) != bool(val_edit):
+                                                diff_dict["concluido"] = bool(val_edit)
+                                        else:
+                                            if str(val_orig).strip() != str(val_edit).strip():
+                                                diff_dict[col_name] = str(val_edit).strip()
                                             
                                 if diff_dict:
                                     pgi_alvo = str(row_edit["ID_PGI"]).strip()
@@ -833,10 +851,10 @@ else:
                             st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
                             st.rerun()
                         else:
-                            st.info("ℹ️ Nenhuma alteração foi realizada na planilha.")
+                            st.info("ℹ️ Nenhuma alteração foi detectada na planilha.")
 
             # ==================================================================
-            # MODO 2: VISUALIZAÇÃO COM BADGES COLORIDOS E AÇÕES RÁPIDAS
+            # MODO 2: VISUALIZAÇÃO COM BADGES COLORIDOS
             # ==================================================================
             else:
                 st.markdown("<div style='background-color:#F4F6F9; padding: 10px; border-radius: 4px; border-left: 4px solid #FF6F00; margin-bottom: 12px;'><strong>⚡ Ações Rápidas:</strong> Selecione o ID PGI desejado abaixo e clique para Editar em formulário ou Excluir o registro.</div>", unsafe_allow_html=True)
@@ -857,11 +875,11 @@ else:
                     "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                     "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng. (ER)", "Valid. Gerente (CO/GE)", "Valid. Suprimentos",
                     "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
-                    "Credenc. GT", "Informar Eng.", "Audit. Pasta"
+                    "Credenc. GT", "Informar Eng.", "Audit. Pasta", "Status Processo"
                 ]
                 
                 table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 10px;'>"
-                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2300px;'>"
+                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2400px;'>"
                 table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
                 table_html += "<tr>"
                 for h in headers:
@@ -896,6 +914,7 @@ else:
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['credenciamento'])}</td>"
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['comunicar'])}</td>"
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['aud_pasta'])}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_concluido_badge(row['concluido'])}</td>"
                     
                     table_html += "</tr>"
                 
@@ -912,7 +931,7 @@ else:
         
         render_html("""
             <div class="info-card">
-                <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo.
+                <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Selecione a obra correspondente, o Comprador responsável e o Tipo de Processo para iniciar o fluxo. Todo processo é iniciado com o status <i>Em Andamento</i>.
             </div>
         """)
         
@@ -962,7 +981,8 @@ else:
                                 "ass_digital": "aguardando",
                                 "credenciamento": "N/A",
                                 "comunicar": "N/A",
-                                "aud_pasta": "aguardando"
+                                "aud_pasta": "aguardando",
+                                "concluido": False
                             }
                             sb_client.insert_list_item(sp_payload, list_name="PGI_GestaoCotacoes")
                             st.cache_data.clear()
@@ -1044,6 +1064,10 @@ else:
                         edit_cred = st.selectbox("Credenciamento - GT", OPCOES_STATUS, index=OPCOES_STATUS.index(item["credenciamento"]) if item["credenciamento"] in OPCOES_STATUS else 0)
                         edit_comunicar = st.selectbox("Informar Engenheiro", OPCOES_STATUS, index=OPCOES_STATUS.index(item["comunicar"]) if item["comunicar"] in OPCOES_STATUS else 0)
                         edit_aud = st.selectbox("Audit. Pasta Final", OPCOES_STATUS, index=OPCOES_STATUS.index(item["aud_pasta"]) if item["aud_pasta"] in OPCOES_STATUS else 0)
+                        
+                        st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
+                        # Checkbox de conclusão oficial do processo no formulário
+                        edit_concluido = st.checkbox("🚩 Processo Finalizado / Concluído", value=bool(item.get("concluido", False)))
                     
                     st.write("")
                     submit_edit = st.form_submit_button("💾 Salvar Alterações")
@@ -1080,7 +1104,8 @@ else:
                             "ass_digital": str(edit_ass),
                             "credenciamento": str(edit_cred),
                             "comunicar": str(edit_comunicar),
-                            "aud_pasta": str(edit_aud)
+                            "aud_pasta": str(edit_aud),
+                            "concluido": bool(edit_concluido)
                         }
                         
                         if not sb_client:

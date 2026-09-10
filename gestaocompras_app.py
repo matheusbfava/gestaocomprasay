@@ -186,6 +186,7 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     if len(digits) != 14:
         return ""
     
+    # 1ª Tentativa: BrasilAPI
     try:
         url_brasil = f"https://brasilapi.com.br/api/cnpj/v1/{digits}"
         r = requests.get(url_brasil, timeout=4)
@@ -197,6 +198,7 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     except Exception:
         pass
         
+    # 2ª Tentativa: ReceitaWS
     try:
         url_ws = f"https://receitaws.com.br/v1/cnpj/{digits}"
         r2 = requests.get(url_ws, timeout=4)
@@ -211,7 +213,7 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     return ""
 
 
-# Estilização CSS institucional
+# Estilização CSS institucional da Marca A.Yoshii
 st.markdown("""
     <style>
     [data-testid="stSidebar"] {
@@ -830,7 +832,7 @@ else:
                 st.rerun()
 
     # ==========================================================================
-    # PAGE 1: DASHBOARD GERAL COM PLANILHA INTERATIVA E BADGES
+    # PAGE 1: DASHBOARD GERAL
     # ==========================================================================
     if st.session_state.menu_option == "Dashboard Geral":
         st.markdown("<h3 class='styled-table-title'>📊 Indicadores Operacionais de Processos</h3>", unsafe_allow_html=True)
@@ -942,7 +944,6 @@ else:
             )
 
         if not df_filtered.empty:
-            # Lista oficial de colunas
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
                 "cnpj_fornecedor", "razao_social",
@@ -959,7 +960,7 @@ else:
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO)
+            # MODO 1: TABELA VISUAL (PADRÃO) COM AÇÕES: ✏️, 📑, 🗑️
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
@@ -985,7 +986,6 @@ else:
                 for index, row in df_filtered.iterrows():
                     table_html += "<tr style='border-bottom: 1px solid #F4F6F9; background-color: white;'>"
                     
-                    # 3 ÍCONES DE AÇÃO: ✏️ EDITAR, 📑 DUPLICAR, 🗑️ EXCLUIR
                     table_html += f"""
                     <td style='padding: 6px 10px; text-align: center; white-space: nowrap; border: 1px solid #F4F6F9;'>
                         <a href='?action=edit&id={row['ID_PGI']}&auth={current_username}' target='_self' style='text-decoration: none; padding: 3px 6px; background-color: #EAF4FF; border: 1px solid #00205B; border-radius: 4px; font-size: 12px; margin-right: 4px; display: inline-block;' title='Editar Registro na Planilha'>✏️</a>
@@ -1031,14 +1031,14 @@ else:
                 st.markdown(table_html, unsafe_allow_html=True)
 
             # ==================================================================
-            # MODO 2: PLANILHA INTERATIVA (EXCEL)
+            # MODO 2: PLANILHA INTERATIVA (EXCEL) COM VALIDAÇÃO SEPARADA DE CNPJ
             # ==================================================================
             else:
                 col_info_plan, col_btn_autofit = st.columns([3, 1.2])
                 with col_info_plan:
                     render_html("""
                         <div style="background-color:#F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; font-size: 12px;">
-                            💡 <strong>Modo Planilha Ativo:</strong> Preencha apenas o <strong>CNPJ</strong> do fornecedor. Ao clicar em <strong>"Salvar Alterações"</strong>, a Razão Social oficial será preenchida automaticamente via consulta à Receita Federal.
+                            💡 <strong>Instruções do CNPJ:</strong> Digite ou altere o <strong>CNPJ</strong> e clique primeiro em <strong>"🔍 Validar CNPJs"</strong> para preencher a Razão Social da Receita. Ao terminar, clique em <strong>"💾 Salvar Alterações"</strong>.
                         </div>
                     """)
                 with col_btn_autofit:
@@ -1064,8 +1064,8 @@ else:
                     "grupoinsumo": st.column_config.SelectboxColumn("Grupo de Insumo", options=opcoes_grupos, width=w_m),
                     "cotacao": st.column_config.TextColumn("Escopo / Cotação", width=w_l),
                     
-                    "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas números ou formatado.", width=w_m),
-                    "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente", disabled=True, width=w_l),
+                    "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas os números. Clique em 'Validar CNPJs' para buscar a Razão Social.", width=w_m),
+                    "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente após clicar em 'Validar CNPJs'", disabled=True, width=w_l),
                     
                     "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width=w_s),
                     "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width=w_s),
@@ -1094,59 +1094,138 @@ else:
                     height=520
                 )
 
-                col_btn_salvar, col_btn_espaco = st.columns([2, 5])
+                col_btn_val, col_btn_salvar, col_btn_espaco = st.columns([1.6, 2.2, 3.2])
+                
+                # --- BOTÃO 1: VALIDAR CNPJS NA RECEITA FEDERAL ---
+                with col_btn_val:
+                    btn_validar_cnpj = st.button("🔍 Validar CNPJs", use_container_width=True)
+
+                # --- BOTÃO 2: SALVAR ALTERAÇÕES GERAIS ---
                 with col_btn_salvar:
-                    if st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True):
-                        alteracoes_detectadas = 0
-                        with st.spinner("Consultando dados da Receita Federal e sincronizando com o banco..."):
-                            for idx, row_edit in df_editado_usuario.iterrows():
-                                row_orig = df_edit_view.loc[idx]
-                                diff_dict = {}
+                    btn_salvar_planilha = st.button("💾 Salvar Alterações da Planilha", type="primary", use_container_width=True)
+
+                # EXECUÇÃO DO BOTÃO VALIDAR CNPJS
+                if btn_validar_cnpj:
+                    alteracoes_cnpj = 0
+                    erros_cnpj = []
+                    
+                    with st.spinner("Consultando dados na Receita Federal via API..."):
+                        for idx, row_edit in df_editado_usuario.iterrows():
+                            pgi_id = str(row_edit["ID_PGI"]).strip()
+                            cnpj_raw = str(row_edit.get("cnpj_fornecedor", "")).strip()
+                            razao_atual = str(row_edit.get("razao_social", "")).strip()
+                            
+                            cnpj_clean = re.sub(r"\D", "", cnpj_raw)
+                            
+                            # Caso A: CNPJ foi apagado -> limpa tanto o CNPJ quanto a Razão Social
+                            if not cnpj_clean and razao_atual:
+                                sb_client.update_list_item(
+                                    pgi_id,
+                                    {"cnpj_fornecedor": "", "razao_social": ""},
+                                    list_name="PGI_GestaoCotacoes",
+                                    id_column="ID_PGI"
+                                )
+                                alteracoes_cnpj += 1
                                 
-                                for col_name in colunas_oficiais:
-                                    if col_name != "ID_PGI":
-                                        val_orig = row_orig[col_name]
-                                        val_edit = row_edit[col_name]
-                                        
-                                        if col_name == "concluido":
-                                            if bool(val_orig) != bool(val_edit):
-                                                diff_dict["concluido"] = bool(val_edit)
-                                        else:
-                                            if str(val_orig).strip() != str(val_edit).strip():
-                                                diff_dict[col_name] = str(val_edit).strip()
-                                                
-                                if diff_dict:
-                                    pgi_alvo = str(row_edit["ID_PGI"]).strip()
+                            # Caso B: CNPJ preenchido ou modificado
+                            elif cnpj_clean:
+                                if len(cnpj_clean) != 14:
+                                    erros_cnpj.append(f"ID {pgi_id}: CNPJ inválido (deve conter 14 dígitos). Informado: '{cnpj_raw}'")
+                                else:
+                                    razao_encontrada = consultar_cnpj_receita(cnpj_clean)
+                                    if razao_encontrada:
+                                        cnpj_formatado = formatar_cnpj(cnpj_clean)
+                                        sb_client.update_list_item(
+                                            pgi_id,
+                                            {"cnpj_fornecedor": cnpj_formatado, "razao_social": razao_encontrada},
+                                            list_name="PGI_GestaoCotacoes",
+                                            id_column="ID_PGI"
+                                        )
+                                        alteracoes_cnpj += 1
+                                    else:
+                                        erros_cnpj.append(f"ID {pgi_id}: CNPJ {formatar_cnpj(cnpj_clean)} não encontrado na Receita Federal")
+
+                    # Limpa o estado interno do editor para evitar reutilização de índices incorretos
+                    if "editor_planilha_dashboard" in st.session_state:
+                        del st.session_state["editor_planilha_dashboard"]
+                        
+                    st.cache_data.clear()
+                    
+                    if alteracoes_cnpj > 0:
+                        st.success(f"✔️ {alteracoes_cnpj} CNPJ(s) processado(s) e validados na Receita com sucesso!")
+                    if erros_cnpj:
+                        for err in erros_cnpj:
+                            st.warning(f"⚠️ {err}")
+                    if alteracoes_cnpj == 0 and not erros_cnpj:
+                        st.info("Nenhum CNPJ novo ou modificado para validar.")
+                        
+                    st.rerun()
+
+                # EXECUÇÃO DO BOTÃO SALVAR ALTERAÇÕES
+                if btn_salvar_planilha:
+                    # CHECAGEM OBRIGATÓRIA: Impede salvar com CNPJs pendentes de validação
+                    pendencias_validacao = []
+                    for idx, row_check in df_editado_usuario.iterrows():
+                        c_clean = re.sub(r"\D", "", str(row_check.get("cnpj_fornecedor", "")))
+                        r_social = str(row_check.get("razao_social", "")).strip()
+                        
+                        # 1. Digitou CNPJ mas não validou
+                        if c_clean and not r_social:
+                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ informado sem Razão Social validada)")
+                        # 2. Apagou CNPJ mas a Razão Social antiga ainda está presente
+                        elif not c_clean and r_social:
+                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ apagado; execute a validação para limpar a Razão Social)")
+
+                    if pendencias_validacao:
+                        st.error("⚠️ **Bloqueio de Segurança:** Existem alterações de CNPJ que precisam ser validadas antes de salvar:")
+                        for p in pendencias_validacao:
+                            st.write(f"- {p}")
+                        st.info("👉 Clique primeiro no botão **'🔍 Validar CNPJs'** para processar a Receita Federal.")
+                        st.stop()
+
+                    # Se não houver pendências de CNPJ, salva todas as outras alterações da planilha
+                    alteracoes_detectadas = 0
+                    with st.spinner("Sincronizando alterações da planilha com o banco..."):
+                        for idx, row_edit in df_editado_usuario.iterrows():
+                            row_orig = df_edit_view.loc[idx]
+                            diff_dict = {}
+                            
+                            for col_name in colunas_oficiais:
+                                if col_name != "ID_PGI":
+                                    val_orig = row_orig[col_name]
+                                    val_edit = row_edit[col_name]
                                     
-                                    if "cnpj_fornecedor" in diff_dict:
-                                        cnpj_novo = diff_dict["cnpj_fornecedor"]
-                                        cnpj_limpo = re.sub(r"\D", "", cnpj_novo)
-                                        if len(cnpj_limpo) == 14:
-                                            diff_dict["cnpj_fornecedor"] = formatar_cnpj(cnpj_limpo)
-                                            razao_encontrada = consultar_cnpj_receita(cnpj_limpo)
-                                            if razao_encontrada:
-                                                diff_dict["razao_social"] = razao_encontrada
-                                        elif not cnpj_novo:
-                                            diff_dict["cnpj_fornecedor"] = ""
-                                            diff_dict["razao_social"] = ""
+                                    if col_name == "concluido":
+                                        if bool(val_orig) != bool(val_edit):
+                                            diff_dict["concluido"] = bool(val_edit)
+                                    else:
+                                        if str(val_orig).strip() != str(val_edit).strip():
+                                            diff_dict[col_name] = str(val_edit).strip()
                                             
-                                    try:
-                                        sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
-                                        alteracoes_detectadas += 1
-                                    except Exception as err:
-                                        st.error(f"Erro ao atualizar ID {pgi_alvo}: {str(err)}")
-                                        
-                        if alteracoes_detectadas > 0:
-                            st.cache_data.clear()
-                            st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
-                            st.rerun()
-                        else:
-                            st.info("ℹ️ Nenhuma alteração foi detectada na planilha.")
+                            if diff_dict:
+                                pgi_alvo = str(row_edit["ID_PGI"]).strip()
+                                try:
+                                    sb_client.update_list_item(pgi_alvo, diff_dict, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
+                                    alteracoes_detectadas += 1
+                                except Exception as err:
+                                    st.error(f"Erro ao atualizar ID {pgi_alvo}: {str(err)}")
+                                    
+                    # Limpa o cache do widget para evitar que digitações fiquem presas em células antigas
+                    if "editor_planilha_dashboard" in st.session_state:
+                        del st.session_state["editor_planilha_dashboard"]
+                        
+                    st.cache_data.clear()
+                    
+                    if alteracoes_detectadas > 0:
+                        st.success(f"✔️ Sucesso! {alteracoes_detectadas} processo(s) atualizado(s) no sistema.")
+                        st.rerun()
+                    else:
+                        st.info("ℹ️ Nenhuma alteração foi detectada na planilha.")
         else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
     # ==========================================================================
-    # PAGE 2: ADICIONAR ID (INDIVIDUAL OU IMPORTAÇÃO EM MASSA VIA EXCEL)
+    # PAGE 2: ADICIONAR ID (SEM CNPJ, FOCO EM CADASTRO RÁPIDO OU CARGA EM MASSA)
     # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
         st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo Processo ou Importar Planilha</h3>", unsafe_allow_html=True)
@@ -1157,19 +1236,18 @@ else:
         with tab_novo_id:
             render_html("""
                 <div class="info-card">
-                    <strong>🛡️ Regra de Negócio:</strong> Cada número de <b>ID PGI é estritamente único</b>. Caso o fechamento ocorra com mais de um fornecedor, utilize o botão <b>📑 Duplicar</b> diretamente na tabela do Dashboard para gerar os sufixos (ex: <code>43654 - 1</code>, <code>43654 - 2</code>).
+                    <strong>🛡️ Regra de Negócio:</strong> Cadastre o ID base do processo. Se o fechamento for com mais de um fornecedor, utilize o botão <b>📑 Duplicar</b> diretamente na tabela do Dashboard para gerar os sufixos (ex: <code>43654 - 1</code>, <code>43654 - 2</code>).
                 </div>
             """)
             
             with st.form("new_record_form"):
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
-                    new_id = st.text_input("ID PGI (Somente o número ou código base)", value="49001")
+                    new_id = st.text_input("ID PGI (Somente número ou código base)", value="49001")
                     new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
-                    new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
                 with col_f2:
+                    new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
                     new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
-                    new_cnpj = st.text_input("CNPJ do Fornecedor (Opcional)", placeholder="Digite apenas os números do CNPJ...")
                     
                 st.write("")
                 submit_new = st.form_submit_button("💾 Salvar Novo ID")
@@ -1188,14 +1266,6 @@ else:
                             st.error("❌ Conexão indisponível. Não foi possível registrar o ID.")
                         else:
                             try:
-                                razao_social_api = ""
-                                cnpj_formatado = ""
-                                if new_cnpj:
-                                    cnpj_limpo = re.sub(r"\D", "", new_cnpj)
-                                    if len(cnpj_limpo) == 14:
-                                        cnpj_formatado = formatar_cnpj(cnpj_limpo)
-                                        razao_social_api = consultar_cnpj_receita(cnpj_limpo)
-                                
                                 sp_payload = {
                                     "ID_PGI": id_str,
                                     "obra": str(new_obra),
@@ -1203,8 +1273,8 @@ else:
                                     "Comprador": str(new_comprador),
                                     "grupoinsumo": "N/A",
                                     "cotacao": f"PROCESSO PGI {id_str}",
-                                    "cnpj_fornecedor": cnpj_formatado,
-                                    "razao_social": razao_social_api,
+                                    "cnpj_fornecedor": "",
+                                    "razao_social": "",
                                     "due_dilligence": "aguardando",
                                     "equalizacao": "aguardando",
                                     "orcamento": "aguardando",
@@ -1233,7 +1303,7 @@ else:
         with tab_import_excel:
             render_html("""
                 <div class="info-card">
-                    <strong>📁 Carga em Massa via Planilha:</strong> Faça upload de um arquivo <code>.xlsx</code> ou <code>.csv</code>. Se informar o <strong>CNPJ</strong> e deixar a Razão Social em branco, o sistema consultará automaticamente a Receita Federal.
+                    <strong>📁 Carga em Massa via Planilha:</strong> Faça upload de um arquivo <code>.xlsx</code> ou <code>.csv</code>. Se preencher o <strong>CNPJ</strong> e deixar a Razão Social em branco, o sistema consultará automaticamente a Receita Federal durante a importação.
                 </div>
             """)
             
@@ -1360,6 +1430,7 @@ else:
                                     cnpj_raw = str(row_u.get("cnpj_fornecedor", "")).strip()
                                     razao_raw = str(row_u.get("razao_social", "")).strip().upper()
                                     
+                                    # Consulta automática se houver CNPJ e não houver Razão Social
                                     if cnpj_raw and not razao_raw:
                                         cnpj_clean = re.sub(r"\D", "", cnpj_raw)
                                         if len(cnpj_clean) == 14:

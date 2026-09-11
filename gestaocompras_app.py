@@ -168,7 +168,7 @@ def parse_bool_safe(val):
     if isinstance(val, (int, float)):
         return bool(val)
     val_str = str(val).strip().lower()
-    return val_str in ["true", "t", "1", "sim", "yes", "ok"]
+    return val_str in ["true", "t", "1", "sim", "yes", "ok", "verdadeiro"]
 
 def formatar_cnpj(cnpj_input: str) -> str:
     digits = re.sub(r"\D", "", str(cnpj_input))
@@ -178,6 +178,10 @@ def formatar_cnpj(cnpj_input: str) -> str:
 
 @st.cache_data(ttl=86400)
 def consultar_cnpj_receita(cnpj_input: str) -> str:
+    """
+    Consulta automática do CNPJ na API pública.
+    Retorna a Razão Social ou string vazia se não localizar.
+    """
     if not cnpj_input:
         return ""
     
@@ -185,7 +189,7 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     if len(digits) != 14:
         return ""
     
-    # 1ª Tentativa: BrasilAPI
+    # Tentativa 1: BrasilAPI
     try:
         url_brasil = f"https://brasilapi.com.br/api/cnpj/v1/{digits}"
         r = requests.get(url_brasil, timeout=4)
@@ -197,7 +201,7 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     except Exception:
         pass
         
-    # 2ª Tentativa: ReceitaWS
+    # Tentativa 2: ReceitaWS
     try:
         url_ws = f"https://receitaws.com.br/v1/cnpj/{digits}"
         r2 = requests.get(url_ws, timeout=4)
@@ -211,8 +215,123 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
         
     return ""
 
+# --- GERADOR DE TEMPLATE EXCEL COM LISTAS SUSPENSAS (DATA VALIDATION) ---
+def gerar_template_excel_com_validacao(obras, tipos, compradores, grupos, status_opts):
+    import openpyxl
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-# Estilização CSS institucional da Marca A.Yoshii
+    wb = openpyxl.Workbook()
+    ws_main = wb.active
+    ws_main.title = "Cotações PGI"
+
+    # Aba de apoio com listas para não estourar o limite de 255 caracteres do Excel
+    ws_apoio = wb.create_sheet(title="_ApoioListas")
+    ws_apoio.sheet_state = "hidden"
+
+    # Preenche as listas de apoio
+    ws_apoio.cell(row=1, column=1, value="OBRAS")
+    for i, v in enumerate(obras, start=2):
+        ws_apoio.cell(row=i, column=1, value=v)
+    range_obras = f"='_ApoioListas'!$A$2:$A${len(obras)+1}"
+
+    ws_apoio.cell(row=1, column=2, value="TIPOS")
+    for i, v in enumerate(tipos, start=2):
+        ws_apoio.cell(row=i, column=2, value=v)
+    range_tipos = f"='_ApoioListas'!$B$2:$B${len(tipos)+1}"
+
+    ws_apoio.cell(row=1, column=3, value="COMPRADORES")
+    for i, v in enumerate(compradores, start=2):
+        ws_apoio.cell(row=i, column=3, value=v)
+    range_compradores = f"='_ApoioListas'!$C$2:$C${len(compradores)+1}"
+
+    ws_apoio.cell(row=1, column=4, value="GRUPOS")
+    for i, v in enumerate(grupos, start=2):
+        ws_apoio.cell(row=i, column=4, value=v)
+    range_grupos = f"='_ApoioListas'!$D$2:$D${len(grupos)+1}"
+
+    ws_apoio.cell(row=1, column=5, value="STATUS")
+    for i, v in enumerate(status_opts, start=2):
+        ws_apoio.cell(row=i, column=5, value=v)
+    range_status = f"='_ApoioListas'!$E$2:$E${len(status_opts)+1}"
+
+    ws_apoio.cell(row=1, column=6, value="CONCLUIDO")
+    ws_apoio.cell(row=2, column=6, value="NÃO")
+    ws_apoio.cell(row=3, column=6, value="SIM")
+    range_concluido = "='_ApoioListas'!$F$2:$F$3"
+
+    # Cabeçalhos do Template (SEM RAZÃO SOCIAL, SOMENTE CNPJ)
+    headers = [
+        "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao", "cnpj_fornecedor",
+        "orcamento", "due_dilligence", "equalizacao", "validacao_eng", "validacao_ger", "validacao_sup",
+        "req_mega", "contr_mega", "param_fiscal", "minuta", "ass_digital", "credenciamento",
+        "comunicar", "aud_pasta", "concluido"
+    ]
+
+    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="00205B", end_color="00205B", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+
+    for col_idx, h_text in enumerate(headers, start=1):
+        cell = ws_main.cell(row=1, column=col_idx, value=h_text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    # Linha de Exemplo 1
+    sample_row = [
+        "49001", obras[0] if obras else "ATMOS", "Novo", compradores[0] if compradores else "Bruno C.",
+        grupos[0] if grupos else "SRV - ALVENARIA", "EXECUÇÃO DE ALVENARIA TORRE A", "00.000.000/0001-91",
+        "OK", "OK", "aguardando", "aguardando", "aguardando", "aguardando",
+        "", "", "N/A", "N/A", "aguardando", "N/A", "N/A", "aguardando", "NÃO"
+    ]
+    for col_idx, val in enumerate(sample_row, start=1):
+        ws_main.cell(row=2, column=col_idx, value=val)
+
+    # Configuração das Listas Suspensas (Data Validation) nas colunas correspondentes (linhas 2 a 3000)
+    dv_obra = DataValidation(type="list", formula1=range_obras, allow_blank=True)
+    ws_main.add_data_validation(dv_obra)
+    dv_obra.add("B2:B3000")
+
+    dv_tipo = DataValidation(type="list", formula1=range_tipos, allow_blank=True)
+    ws_main.add_data_validation(dv_tipo)
+    dv_tipo.add("C2:C3000")
+
+    dv_comp = DataValidation(type="list", formula1=range_compradores, allow_blank=True)
+    ws_main.add_data_validation(dv_comp)
+    dv_comp.add("D2:D3000")
+
+    dv_grupo = DataValidation(type="list", formula1=range_grupos, allow_blank=True)
+    ws_main.add_data_validation(dv_grupo)
+    dv_grupo.add("E2:E3000")
+
+    # Dropdowns para os status (Colunas H a M e P a U)
+    status_columns = ["H", "I", "J", "K", "L", "M", "P", "Q", "R", "S", "T", "U"]
+    dv_status = DataValidation(type="list", formula1=range_status, allow_blank=True)
+    ws_main.add_data_validation(dv_status)
+    for col_letter in status_columns:
+        dv_status.add(f"{col_letter}2:{col_letter}3000")
+
+    # Dropdown de Concluído (Coluna V)
+    dv_conc = DataValidation(type="list", formula1=range_concluido, allow_blank=True)
+    ws_main.add_data_validation(dv_conc)
+    dv_conc.add("V2:V3000")
+
+    # Ajuste visual das larguras das colunas no Excel
+    col_widths = {
+        "A": 12, "B": 22, "C": 12, "D": 18, "E": 26, "F": 35, "G": 22,
+        "H": 13, "I": 13, "J": 13, "K": 13, "L": 13, "M": 13, "N": 14,
+        "O": 14, "P": 13, "Q": 13, "R": 13, "S": 13, "T": 13, "U": 13, "V": 13
+    }
+    for col_letter, width in col_widths.items():
+        ws_main.column_dimensions[col_letter].width = width
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+# Estilização CSS institucional
 st.markdown("""
     <style>
     [data-testid="stSidebar"] {
@@ -395,8 +514,6 @@ if "autofit_cols" not in st.session_state:
     st.session_state.autofit_cols = False
 if "modo_visualizacao" not in st.session_state:
     st.session_state.modo_visualizacao = "👁️ Tabela Visual (Badges)"
-
-# PADRÃO 3: Inicializa o filtro com '⏳ Em andamento'
 if "filtro_status_conclusao" not in st.session_state:
     st.session_state.filtro_status_conclusao = "⏳ Em andamento"
 
@@ -443,15 +560,8 @@ if not st.session_state.logged_in and auth_param:
         st.session_state.username = str(auth_param).lower()
         st.session_state.user_perfil = "administrador"
 
-# --- LÓGICA DE DUPLICAÇÃO CORRIGIDA (ITENS 1 E 2) ---
+# --- LÓGICA DE DUPLICAÇÃO DE PROCESSO COM SUFIXO (- 1, - 2, ...) ---
 def duplicar_processo_fornecedor(id_origem: str):
-    """
-    Duplica o processo respeitando a regra:
-    - 1ª duplicação: o original '43239' é renomeado para '43239 - 1' e a cópia vira '43239 - 2'.
-    - Duplicações subsequentes: busca o maior N existente e cria '43239 - (N+1)'.
-    - Duplica SOMENTE os campos de validação (Solic. Orç., Due Dill., Equaliz., Valid. Eng., Valid. Ger., Valid. Sup.).
-      O restante fica limpo para o novo fornecedor.
-    """
     if not sb_client:
         return False, "Conexão com o banco de dados indisponível."
         
@@ -469,7 +579,6 @@ def duplicar_processo_fornecedor(id_origem: str):
     if not item_original:
         return False, f"Processo {id_origem_str} não localizado para duplicação."
 
-    # Coleta todos os sufixos já existentes para a família do ID
     sufixos_existentes = []
     tem_base_pura = False
     
@@ -483,7 +592,6 @@ def duplicar_processo_fornecedor(id_origem: str):
                 sufixos_existentes.append(int(m.group(1)))
 
     def criar_payload_clone(id_destino):
-        # DUPLICA SOMENTE AS VALIDAÇÕES ESPECIFICADAS; O RESTANTE FICA EM BRANCO/INICIAL
         return {
             "ID_PGI": str(id_destino),
             "obra": str(item_original.get("obra", "N/A")),
@@ -494,7 +602,7 @@ def duplicar_processo_fornecedor(id_origem: str):
             "cotacao": str(item_original.get("cotacao", "")),
             "DT_EMISSAO": str(item_original.get("DT_EMISSAO", "")),
             
-            # --- CAMPOS DUPLICADOS CONFORME SOLICITADO ---
+            # Validações duplicadas
             "orcamento": str(item_original.get("orcamento", "aguardando")),
             "due_dilligence": str(item_original.get("due_dilligence", "aguardando")),
             "equalizacao": str(item_original.get("equalizacao", "aguardando")),
@@ -502,7 +610,7 @@ def duplicar_processo_fornecedor(id_origem: str):
             "validacao_ger": str(item_original.get("validacao_ger", "aguardando")),
             "validacao_sup": str(item_original.get("validacao_sup", "aguardando")),
             
-            # --- RESTANTE MANTIDO EM BRANCO / PENDENTE ---
+            # Restante em branco / pendente
             "cnpj_fornecedor": "",
             "razao_social": "",
             "req_mega": "",
@@ -518,16 +626,13 @@ def duplicar_processo_fornecedor(id_origem: str):
 
     try:
         if tem_base_pura and not sufixos_existentes:
-            # 1ª DUPLICAÇÃO: '43239' vira '43239 - 1' e o clone vira '43239 - 2'
             id_novo_original = f"{base_id} - 1"
             id_novo_clone = f"{base_id} - 2"
             
-            # Atualiza o original no banco via URL REST direta garantida
             headers = sb_client._get_headers()
             url_patch_orig = f"{sb_client.rest_url}/PGI_GestaoCotacoes?ID_PGI=eq.{base_id}"
             r_patch = requests.patch(url_patch_orig, headers=headers, json={"ID_PGI": id_novo_original}, timeout=10)
             
-            # Fallback seguro caso o banco bloqueie alteração de ID no PATCH
             if r_patch.status_code not in (200, 204):
                 payload_antigo = dict(item_original)
                 payload_antigo.pop("id", None)
@@ -536,13 +641,11 @@ def duplicar_processo_fornecedor(id_origem: str):
                 sb_client.insert_list_item(payload_antigo, list_name="PGI_GestaoCotacoes")
                 sb_client.delete_list_item(base_id, list_name="PGI_GestaoCotacoes", id_column="ID_PGI")
             
-            # Insere o novo processo desmembrado
             payload_clone = criar_payload_clone(id_novo_clone)
             sb_client.insert_list_item(payload_clone, list_name="PGI_GestaoCotacoes")
             
             return True, f"✔️ Processo {base_id} desmembrado com sucesso em {id_novo_original} e {id_novo_clone}!"
         else:
-            # Duplicações subsequentes (acha o maior N e soma 1)
             maior_n = max(sufixos_existentes) if sufixos_existentes else 1
             proximo_n = maior_n + 1
             id_novo_clone = f"{base_id} - {proximo_n}"
@@ -930,7 +1033,6 @@ else:
                 unique_vals = sorted([str(v).strip() for v in df[column_name].unique() if str(v).strip()])
                 return ["Todos"] + unique_vals
 
-            # PADRÃO 3: FILTRO PADRÃO É 'EM ANDAMENTO'
             st.markdown("<strong>Filtrar por Status do Processo:</strong>", unsafe_allow_html=True)
             status_opcoes = ["⏳ Em andamento", "Todos", "✅ Concluídos"]
             status_filtro = st.radio(
@@ -954,7 +1056,6 @@ else:
 
             st.write("<div style='height:4px;'></div>", unsafe_allow_html=True)
             
-            # Limpeza completa de filtros restaurando o padrão '⏳ Em andamento'
             if st.button("🔄 Limpar Filtros", use_container_width=False):
                 for k in ["f_id_sel", "f_comprador_sel", "f_grupo_sel", "f_obra_sel"]:
                     if k in st.session_state:
@@ -1007,7 +1108,7 @@ else:
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO) COM ÍCONES: ✏️, 📑, 🗑️
+            # MODO 1: TABELA VISUAL (PADRÃO) COM AÇÕES: ✏️, 📑, 🗑️
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
                 headers = [
@@ -1042,7 +1143,13 @@ else:
                     """
                     
                     cnpj_fmt = formatar_cnpj(row['cnpj_fornecedor']) if row['cnpj_fornecedor'] else '<span style="color:#A0AEC0;">Pendente</span>'
-                    razao_fmt = f"<b>{row['razao_social']}</b>" if row['razao_social'] else '<span style="color:#A0AEC0;">Não consultado</span>'
+                    
+                    if row['razao_social'] == "#ERRO":
+                        razao_fmt = '<span style="color:#DC3545; font-weight:bold;">#ERRO (Não Localizado)</span>'
+                    elif row['razao_social']:
+                        razao_fmt = f"<b>{row['razao_social']}</b>"
+                    else:
+                        razao_fmt = '<span style="color:#A0AEC0;">Pendente</span>'
                     
                     table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
@@ -1169,7 +1276,14 @@ else:
                                 alteracoes_cnpj += 1
                             elif cnpj_clean:
                                 if len(cnpj_clean) != 14:
-                                    erros_cnpj.append(f"ID {pgi_id}: CNPJ inválido (deve conter 14 dígitos). Informado: '{cnpj_raw}'")
+                                    sb_client.update_list_item(
+                                        pgi_id,
+                                        {"cnpj_fornecedor": cnpj_raw, "razao_social": "#ERRO"},
+                                        list_name="PGI_GestaoCotacoes",
+                                        id_column="ID_PGI"
+                                    )
+                                    erros_cnpj.append(f"ID {pgi_id}: CNPJ inválido ({cnpj_raw}) marcado como #ERRO.")
+                                    alteracoes_cnpj += 1
                                 else:
                                     razao_encontrada = consultar_cnpj_receita(cnpj_clean)
                                     if razao_encontrada:
@@ -1182,7 +1296,14 @@ else:
                                         )
                                         alteracoes_cnpj += 1
                                     else:
-                                        erros_cnpj.append(f"ID {pgi_id}: CNPJ {formatar_cnpj(cnpj_clean)} não encontrado na Receita Federal")
+                                        sb_client.update_list_item(
+                                            pgi_id,
+                                            {"cnpj_fornecedor": formatar_cnpj(cnpj_clean), "razao_social": "#ERRO"},
+                                            list_name="PGI_GestaoCotacoes",
+                                            id_column="ID_PGI"
+                                        )
+                                        erros_cnpj.append(f"ID {pgi_id}: CNPJ {formatar_cnpj(cnpj_clean)} não encontrado (marcado como #ERRO).")
+                                        alteracoes_cnpj += 1
 
                     if "editor_planilha_dashboard" in st.session_state:
                         del st.session_state["editor_planilha_dashboard"]
@@ -1190,7 +1311,7 @@ else:
                     st.cache_data.clear()
                     
                     if alteracoes_cnpj > 0:
-                        st.success(f"✔️ {alteracoes_cnpj} CNPJ(s) processado(s) e validados com sucesso!")
+                        st.success(f"✔️ {alteracoes_cnpj} CNPJ(s) processado(s) e validados na Receita!")
                     if erros_cnpj:
                         for err in erros_cnpj:
                             st.warning(f"⚠️ {err}")
@@ -1206,7 +1327,7 @@ else:
                         r_social = str(row_check.get("razao_social", "")).strip()
                         
                         if c_clean and not r_social:
-                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ informado sem validação da Razão Social)")
+                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ informado sem Razão Social validada)")
                         elif not c_clean and r_social:
                             pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ apagado; execute a validação para limpar a Razão Social)")
 
@@ -1257,7 +1378,7 @@ else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
     # ==========================================================================
-    # PAGE 2: ADICIONAR ID (CADASTRO RÁPIDO OU IMPORTAÇÃO EM MASSA SEM RESTRIÇÕES)
+    # PAGE 2: ADICIONAR ID (INDIVIDUAL OU IMPORTAÇÃO EM MASSA COM LISTAS SUSPENSAS)
     # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
         st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo Processo ou Importar Planilha</h3>", unsafe_allow_html=True)
@@ -1331,76 +1452,40 @@ else:
                             except Exception as e:
                                 st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
-        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA SEM RESTRIÇÃO DE DUPLICIDADE (ITEM 4) ---
+        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA COM LISTAS SUSPENSAS E LEITURA DE CNPJ ---
         with tab_import_excel:
             render_html("""
                 <div class="info-card">
-                    <strong>📁 Carga em Massa sem Restrições de ID:</strong> Todos os registros da planilha serão carregados para o sistema, permitindo repetições de ID conforme o preenchimento da planilha.
+                    <strong>📁 Carga em Massa via Excel:</strong> Baixe o modelo oficial com listas suspensas integradas. A coluna <code>razao_social</code> não é necessária: preencha apenas o <code>cnpj_fornecedor</code> e a Receita Federal será consultada na importação (erros serão marcados como <code>#ERRO</code>).
                 </div>
             """)
             
             col_mod1, col_mod2 = st.columns([2.5, 1.5])
             with col_mod1:
-                st.markdown("<strong>1. Baixe o Modelo Oficial de Carga</strong>", unsafe_allow_html=True)
-                st.caption("Planilha pré-formatada com as colunas padrão do sistema.")
+                st.markdown("<strong>1. Baixe o Modelo Oficial com Listas Suspensas</strong>", unsafe_allow_html=True)
+                st.caption("Planilha pré-formatada com validações nativas para Obra, Tipo, Comprador, Grupo de Insumo e Status.")
             with col_mod2:
-                sample_data = [{
-                    "ID_PGI": "49001",
-                    "obra": "ATMOS",
-                    "tipo": "Novo",
-                    "Comprador": "Bruno C.",
-                    "grupoinsumo": "SRV - ALVENARIA",
-                    "cotacao": "EXECUÇÃO DE ALVENARIA TORRE A",
-                    "cnpj_fornecedor": "00.000.000/0001-91",
-                    "razao_social": "BANCO DO BRASIL SA",
-                    "orcamento": "OK",
-                    "due_dilligence": "OK",
-                    "equalizacao": "aguardando",
-                    "validacao_eng": "aguardando",
-                    "validacao_ger": "aguardando",
-                    "validacao_sup": "aguardando",
-                    "req_mega": "",
-                    "contr_mega": "",
-                    "param_fiscal": "N/A",
-                    "minuta": "N/A",
-                    "ass_digital": "aguardando",
-                    "credenciamento": "N/A",
-                    "comunicar": "N/A",
-                    "aud_pasta": "aguardando",
-                    "concluido": False
-                }]
-                sample_df = pd.DataFrame(sample_data)
-                
-                tem_openpyxl = False
+                # Geração protegida da planilha com Data Validation
                 try:
-                    import openpyxl
-                    tem_openpyxl = True
-                except ImportError:
-                    tem_openpyxl = False
-
-                if tem_openpyxl:
-                    buffer_excel = io.BytesIO()
-                    with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
-                        sample_df.to_excel(writer, index=False, sheet_name="Cotações PGI")
+                    bytes_template = gerar_template_excel_com_validacao(
+                        obras=lista_obras_dynamic,
+                        tipos=LISTA_TIPOS,
+                        compradores=LISTA_COMPRADORES,
+                        grupos=lista_grupo_insumo_dynamic,
+                        status_opts=OPCOES_STATUS
+                    )
                     st.download_button(
-                        label="📥 Baixar Modelo (.xlsx)",
-                        data=buffer_excel.getvalue(),
-                        file_name="modelo_carga_pgi.xlsx",
+                        label="📥 Baixar Modelo Oficial (.xlsx)",
+                        data=bytes_template,
+                        file_name="modelo_carga_pgi_oficial.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
-                else:
-                    csv_data = sample_df.to_csv(index=False, sep=";").encode("utf-8-sig")
-                    st.download_button(
-                        label="📥 Baixar Modelo (.csv / Excel)",
-                        data=csv_data,
-                        file_name="modelo_carga_pgi.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+                except Exception as err_tpl:
+                    st.error(f"Erro ao gerar template Excel: {str(err_tpl)}")
                 
             st.write("---")
-            st.markdown("<strong>2. Selecione o Arquivo Preenchido</strong>", unsafe_allow_html=True)
+            st.markdown("<strong>2. Selecione a Planilha Preenchida</strong>", unsafe_allow_html=True)
             uploaded_excel = st.file_uploader("Upload da Planilha de Cotações", type=["xlsx", "xls", "csv"])
             
             if uploaded_excel:
@@ -1416,9 +1501,6 @@ else:
                             uploaded_excel.seek(0)
                             df_upload = pd.read_csv(uploaded_excel)
                     else:
-                        if not tem_openpyxl:
-                            st.error("⚠️ Pacote openpyxl não detectado para arquivos .xlsx. Salve como .csv e envie novamente.")
-                            st.stop()
                         df_upload = pd.read_excel(uploaded_excel)
                         
                     col_id_nome = next((c for c in df_upload.columns if str(c).strip().upper() == "ID_PGI"), None)
@@ -1431,25 +1513,34 @@ else:
                         df_upload["ID_PGI"] = df_upload["ID_PGI"].astype(str).str.replace(".0", "", regex=False).str.strip()
                         df_upload = df_upload[df_upload["ID_PGI"] != ""]
                         
-                        # ITEM 4: NÃO DESCARTA LINHAS REPETIDAS (Carrega tudo integralmente)
                         st.success(f"✔️ Planilha pronta! Total de **{len(df_upload)}** registros identificados para carregamento.")
                         st.dataframe(df_upload.head(5), use_container_width=True)
                         
                         if st.button("🚀 Carregar Todos os Registros no Sistema", type="primary", use_container_width=True):
-                            with st.spinner("Processando e gravando todos os registros no banco..."):
+                            with st.spinner("Processando registros e consultando CNPJs na Receita Federal..."):
                                 lista_inserir = []
                                 
                                 for _, row_u in df_upload.iterrows():
                                     pgi_id_val = str(row_u["ID_PGI"]).strip()
                                     cnpj_raw = str(row_u.get("cnpj_fornecedor", "")).strip()
-                                    razao_raw = str(row_u.get("razao_social", "")).strip().upper()
+                                    razao_social_final = ""
                                     
-                                    # Se informou CNPJ e não tem Razão Social, consulta automaticamente
-                                    if cnpj_raw and not razao_raw:
+                                    # LEITURA AUTOMÁTICA DE CNPJ -> RAZÃO SOCIAL COM REGRA #ERRO
+                                    if cnpj_raw and cnpj_raw.lower() not in ["none", "nan", ""]:
                                         cnpj_clean = re.sub(r"\D", "", cnpj_raw)
                                         if len(cnpj_clean) == 14:
-                                            cnpj_raw = formatar_cnpj(cnpj_clean)
-                                            razao_raw = consultar_cnpj_receita(cnpj_clean)
+                                            razao_encontrada = consultar_cnpj_receita(cnpj_clean)
+                                            if razao_encontrada:
+                                                razao_social_final = razao_encontrada
+                                                cnpj_raw = formatar_cnpj(cnpj_clean)
+                                            else:
+                                                razao_social_final = "#ERRO"
+                                                cnpj_raw = formatar_cnpj(cnpj_clean)
+                                        else:
+                                            razao_social_final = "#ERRO"
+                                    else:
+                                        cnpj_raw = ""
+                                        razao_social_final = ""
                                     
                                     payload_linha = {
                                         "ID_PGI": pgi_id_val,
@@ -1460,7 +1551,7 @@ else:
                                         "grupointerno": str(row_u.get("grupointerno", "")).strip(),
                                         "cotacao": str(row_u.get("cotacao", f"PROCESSO PGI {pgi_id_val}")).strip().upper(),
                                         "cnpj_fornecedor": cnpj_raw,
-                                        "razao_social": razao_raw,
+                                        "razao_social": razao_social_final,
                                         "due_dilligence": str(row_u.get("due_dilligence", "aguardando")).strip(),
                                         "equalizacao": str(row_u.get("equalizacao", "aguardando")).strip(),
                                         "orcamento": str(row_u.get("orcamento", "N/A")).strip(),
@@ -1483,7 +1574,7 @@ else:
                                     sb_client.insert_batch(lista_inserir, list_name="PGI_GestaoCotacoes")
                                     
                                 st.cache_data.clear()
-                                st.success(f"🎉 **Carga Concluída!** Foram inseridos com sucesso **{len(lista_inserir)}** processos no sistema.")
+                                st.success(f"🎉 **Carga Concluída!** Inseridos **{len(lista_inserir)}** processos no sistema.")
                                 st.balloons()
                                 
                 except Exception as err_file:

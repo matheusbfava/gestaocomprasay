@@ -238,48 +238,51 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
 st.markdown("""
     <style>
     /* ======================================================== */
-    /* OCULTA GITHUB, DEPLOY E 3 PONTINHOS SEM QUEBRAR O MENU   */
+    /* 1. ELIMINA A FAIXA BRANCA E DESTRAVA TODOS OS CLIQUES     */
     /* ======================================================== */
-    #MainMenu {
-        display: none !important;
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 0px !important;
+        min-height: 0px !important;
+        padding: 0px !important;
+        margin: 0px !important;
+        pointer-events: none !important; /* Libera o mouse para clicar em tudo */
+        z-index: 0 !important;
     }
     
-    [data-testid="stToolbar"] {
-        display: none !important;
-    }
-    
-    .stDeployButton {
-        display: none !important;
+    header[data-testid="stHeader"] * {
+        pointer-events: none !important;
     }
 
+    #MainMenu, 
+    [data-testid="stToolbar"], 
+    .stDeployButton,
     footer {
         display: none !important;
+        visibility: hidden !important;
     }
 
-    /* Impede que o usuário feche a barra lateral por engano */
-    [data-testid="stSidebarCollapseButton"] {
-        display: none !important;
-    }
-    
-    /* Remove margem em branco excessiva que sobra no topo */
-    .block-container {
-        padding-top: 1.5rem !important;
-    }
-
-    /* Fonte compacta na Planilha Interativa (Excel) */
-    div[data-testid="stDataEditor"],
-    div[data-testid="stDataEditor"] * {
-        font-size: 11px !important;
-    }
-
-    /* Barra Lateral (Sidebar) */
+    /* ======================================================== */
+    /* 2. BARRA LATERAL ATÉ O TOPO E 100% CLICÁVEL              */
+    /* ======================================================== */
     [data-testid="stSidebar"] {
+        top: 0 !important;
+        height: 100vh !important;
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
+        z-index: 1000 !important;
+        pointer-events: auto !important;
     }
+    
     [data-testid="stSidebar"] * {
         color: #FFFFFF !important;
+        pointer-events: auto !important;
     }
+    
+    [data-testid="stSidebarCollapseButton"] {
+        display: none !important; /* Impede que fechem a barra lateral */
+    }
+
     [data-testid="stSidebar"] hr {
         border-color: rgba(255, 255, 255, 0.2) !important;
     }
@@ -294,6 +297,20 @@ st.markdown("""
     }
     [data-testid="stSidebar"] .stButton > button:hover {
         background-color: #E05D00 !important;
+    }
+
+    /* ======================================================== */
+    /* 3. CONTEÚDO PRINCIPAL (SEM O VÃO BRANCO NO TOPO)         */
+    /* ======================================================== */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* Fonte compacta na Planilha Interativa (Excel) */
+    div[data-testid="stDataEditor"],
+    div[data-testid="stDataEditor"] * {
+        font-size: 11px !important;
     }
     
     .title-container {
@@ -390,13 +407,13 @@ st.markdown("""
         font-size: 16px;
     }
 
-    /* Redimensionamento interativo dos cabeçalhos */
     th.resizable-th {
         resize: horizontal;
         overflow: auto;
     }
     </style>
 """, unsafe_allow_html=True)
+
 def render_html(html_str):
     clean_html = "".join([line.strip() for line in html_str.split("\n")])
     st.markdown(clean_html, unsafe_allow_html=True)

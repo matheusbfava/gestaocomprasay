@@ -170,26 +170,45 @@ def parse_bool_safe(val):
     val_str = str(val).strip().lower()
     return val_str in ["true", "t", "1", "sim", "yes", "ok", "verdadeiro"]
 
+def parse_float_safe(val):
+    if val is None or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).replace("R$", "").replace("r$", "").replace(" ", "").replace("\xa0", "").strip()
+    if not val_str:
+        return 0.0
+    if "," in val_str and "." in val_str:
+        val_str = val_str.replace(".", "").replace(",", ".")
+    elif "," in val_str:
+        val_str = val_str.replace(",", ".")
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+def formatar_moeda(val):
+    v = parse_float_safe(val)
+    return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 def formatar_cnpj(cnpj_input: str) -> str:
     digits = re.sub(r"\D", "", str(cnpj_input))
     if len(digits) == 14:
         return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
     return str(cnpj_input).strip()
 
+def natural_sort_key(pgi_id_str):
+    """Garante classificação natural estável (ex: 43239, 43239 - 1, 43239 - 2)."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', str(pgi_id_str))]
+
 @st.cache_data(ttl=86400)
 def consultar_cnpj_receita(cnpj_input: str) -> str:
-    """
-    Consulta automática do CNPJ na API pública.
-    Retorna a Razão Social ou string vazia se não localizar.
-    """
     if not cnpj_input:
         return ""
-    
     digits = re.sub(r"\D", "", str(cnpj_input))
     if len(digits) != 14:
         return ""
     
-    # Tentativa 1: BrasilAPI
     try:
         url_brasil = f"https://brasilapi.com.br/api/cnpj/v1/{digits}"
         r = requests.get(url_brasil, timeout=4)
@@ -201,7 +220,6 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
     except Exception:
         pass
         
-    # Tentativa 2: ReceitaWS
     try:
         url_ws = f"https://receitaws.com.br/v1/cnpj/{digits}"
         r2 = requests.get(url_ws, timeout=4)
@@ -214,121 +232,6 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
         pass
         
     return ""
-
-# --- GERADOR DE TEMPLATE EXCEL COM LISTAS SUSPENSAS (DATA VALIDATION) ---
-def gerar_template_excel_com_validacao(obras, tipos, compradores, grupos, status_opts):
-    import openpyxl
-    from openpyxl.worksheet.datavalidation import DataValidation
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    wb = openpyxl.Workbook()
-    ws_main = wb.active
-    ws_main.title = "Cotações PGI"
-
-    # Aba de apoio com listas para não estourar o limite de 255 caracteres do Excel
-    ws_apoio = wb.create_sheet(title="_ApoioListas")
-    ws_apoio.sheet_state = "hidden"
-
-    # Preenche as listas de apoio
-    ws_apoio.cell(row=1, column=1, value="OBRAS")
-    for i, v in enumerate(obras, start=2):
-        ws_apoio.cell(row=i, column=1, value=v)
-    range_obras = f"='_ApoioListas'!$A$2:$A${len(obras)+1}"
-
-    ws_apoio.cell(row=1, column=2, value="TIPOS")
-    for i, v in enumerate(tipos, start=2):
-        ws_apoio.cell(row=i, column=2, value=v)
-    range_tipos = f"='_ApoioListas'!$B$2:$B${len(tipos)+1}"
-
-    ws_apoio.cell(row=1, column=3, value="COMPRADORES")
-    for i, v in enumerate(compradores, start=2):
-        ws_apoio.cell(row=i, column=3, value=v)
-    range_compradores = f"='_ApoioListas'!$C$2:$C${len(compradores)+1}"
-
-    ws_apoio.cell(row=1, column=4, value="GRUPOS")
-    for i, v in enumerate(grupos, start=2):
-        ws_apoio.cell(row=i, column=4, value=v)
-    range_grupos = f"='_ApoioListas'!$D$2:$D${len(grupos)+1}"
-
-    ws_apoio.cell(row=1, column=5, value="STATUS")
-    for i, v in enumerate(status_opts, start=2):
-        ws_apoio.cell(row=i, column=5, value=v)
-    range_status = f"='_ApoioListas'!$E$2:$E${len(status_opts)+1}"
-
-    ws_apoio.cell(row=1, column=6, value="CONCLUIDO")
-    ws_apoio.cell(row=2, column=6, value="NÃO")
-    ws_apoio.cell(row=3, column=6, value="SIM")
-    range_concluido = "='_ApoioListas'!$F$2:$F$3"
-
-    # Cabeçalhos do Template (SEM RAZÃO SOCIAL, SOMENTE CNPJ)
-    headers = [
-        "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao", "cnpj_fornecedor",
-        "orcamento", "due_dilligence", "equalizacao", "validacao_eng", "validacao_ger", "validacao_sup",
-        "req_mega", "contr_mega", "param_fiscal", "minuta", "ass_digital", "credenciamento",
-        "comunicar", "aud_pasta", "concluido"
-    ]
-
-    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="00205B", end_color="00205B", fill_type="solid")
-    center_align = Alignment(horizontal="center", vertical="center")
-
-    for col_idx, h_text in enumerate(headers, start=1):
-        cell = ws_main.cell(row=1, column=col_idx, value=h_text)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_align
-
-    # Linha de Exemplo 1
-    sample_row = [
-        "49001", obras[0] if obras else "ATMOS", "Novo", compradores[0] if compradores else "Bruno C.",
-        grupos[0] if grupos else "SRV - ALVENARIA", "EXECUÇÃO DE ALVENARIA TORRE A", "00.000.000/0001-91",
-        "OK", "OK", "aguardando", "aguardando", "aguardando", "aguardando",
-        "", "", "N/A", "N/A", "aguardando", "N/A", "N/A", "aguardando", "NÃO"
-    ]
-    for col_idx, val in enumerate(sample_row, start=1):
-        ws_main.cell(row=2, column=col_idx, value=val)
-
-    # Configuração das Listas Suspensas (Data Validation) nas colunas correspondentes (linhas 2 a 3000)
-    dv_obra = DataValidation(type="list", formula1=range_obras, allow_blank=True)
-    ws_main.add_data_validation(dv_obra)
-    dv_obra.add("B2:B3000")
-
-    dv_tipo = DataValidation(type="list", formula1=range_tipos, allow_blank=True)
-    ws_main.add_data_validation(dv_tipo)
-    dv_tipo.add("C2:C3000")
-
-    dv_comp = DataValidation(type="list", formula1=range_compradores, allow_blank=True)
-    ws_main.add_data_validation(dv_comp)
-    dv_comp.add("D2:D3000")
-
-    dv_grupo = DataValidation(type="list", formula1=range_grupos, allow_blank=True)
-    ws_main.add_data_validation(dv_grupo)
-    dv_grupo.add("E2:E3000")
-
-    # Dropdowns para os status (Colunas H a M e P a U)
-    status_columns = ["H", "I", "J", "K", "L", "M", "P", "Q", "R", "S", "T", "U"]
-    dv_status = DataValidation(type="list", formula1=range_status, allow_blank=True)
-    ws_main.add_data_validation(dv_status)
-    for col_letter in status_columns:
-        dv_status.add(f"{col_letter}2:{col_letter}3000")
-
-    # Dropdown de Concluído (Coluna V)
-    dv_conc = DataValidation(type="list", formula1=range_concluido, allow_blank=True)
-    ws_main.add_data_validation(dv_conc)
-    dv_conc.add("V2:V3000")
-
-    # Ajuste visual das larguras das colunas no Excel
-    col_widths = {
-        "A": 12, "B": 22, "C": 12, "D": 18, "E": 26, "F": 35, "G": 22,
-        "H": 13, "I": 13, "J": 13, "K": 13, "L": 13, "M": 13, "N": 14,
-        "O": 14, "P": 13, "Q": 13, "R": 13, "S": 13, "T": 13, "U": 13, "V": 13
-    }
-    for col_letter, width in col_widths.items():
-        ws_main.column_dimensions[col_letter].width = width
-
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    return buffer.getvalue()
 
 
 # Estilização CSS institucional
@@ -401,7 +304,7 @@ st.markdown("""
         border-top: 3px solid #FF6F00;
     }
     .metric-value {
-        font-size: 18px !important;
+        font-size: 17px !important;
         font-weight: 800;
         color: #00205B;
         margin-top: 2px !important;
@@ -422,10 +325,6 @@ st.markdown("""
         border-radius: 4px;
         margin-bottom: 15px;
         color: #1E1E1E;
-    }
-    .info-card h4, .info-card p, .info-card code {
-        color: #1E1E1E !important;
-        margin: 0 0 6px 0;
     }
     
     div[data-baseweb="input"] {
@@ -454,6 +353,12 @@ st.markdown("""
         margin-bottom: 10px;
         font-size: 16px;
     }
+
+    /* Redimensionamento interativo dos cabeçalhos */
+    th.resizable-th {
+        resize: horizontal;
+        overflow: auto;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -464,40 +369,6 @@ def render_html(html_str):
 def get_logo_svg(theme="dark", width=145, height=30):
     text_color = "#FFFFFF" if theme == "dark" else "#00205B"
     return f'<svg width="{width}" height="{height}" viewBox="0 0 220 45" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><rect x="2" y="2" width="41" height="41" rx="4" fill="#FF6F00" /><circle cx="22.5" cy="22.5" r="17.5" fill="#FFFFFF" /><circle cx="22.5" cy="22.5" r="15" fill="#00205B" /><path d="M 16,29 L 21.5,14 L 23.5,14 L 29,29" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="18.5" y1="23.5" x2="26.5" y2="23.5" stroke="#FFFFFF" stroke-width="2.5" /><path d="M 25.5,23.5 L 29,31.5" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" /><text x="52" y="32" font-family="Helvetica, Arial, sans-serif" font-size="23" font-weight="900" fill="{text_color}" letter-spacing="1">A.YOSHII</text></svg>'
-
-# --- DROPDOWNS OFICIAIS ---
-LISTA_COMPRADORES = [
-    "Leonardo F.", "Bruno C.", "Caio S.", "Heloysa C.", "Angelica F.", "Fernanda L.",
-    "Flaviane F.", "Marcos T.", "Erik G.", "Aline D.", "Evelise D.", "Lorena P.",
-    "Thafani O.", "Thayna L.", "Bryan C.", "Larissa M.", "Lucia W.", "Victor V.",
-    "Vanessa B.", "Marcos F.", "Joao S.", "Andre P.", "Luis K.", "Gabriel M.",
-    "Matheus F.", "Leonardo S.", "Matheus C.", "Roberta O."
-]
-
-LISTA_FALLBACK_GRUPO_INSUMO = [
-    "PROTENSAO - ACESSORIOS E CONSULTORIA", "SRV - ESQUADRIA DE ALUMINIO", "SRV - ESQUADRIA DE MADEIRA",
-    "SRV - REBOCO EXTERNO", "SRV - REBOCO INTERNO", "SRV - PINTURA INTERNA", "SRV - PINTURA EXTERNA",
-    "SRV - REVESTIMENTO CERAMICO", "SRV - ALVENARIA", "SRV - ARMACAO", "SRV - CARPINTARIA",
-    "SRV - ESCORAMENTO METALICO", "SRV - ESQUADRIA INOX", "PISO AQUECIDO", "SRV - ASPIRACAO CENTRAL",
-    "SRV - REGUL., CONTRAPISO E PISOS DE CONCRETO", "SERVICO DE ANCORAGEM", "LOCACAO DE EQUIPAMENTOS",
-    "SRV - FORMA METALICA", "SRV - LIMPEZA", "SRV - IMPERMEABILIZACAO", "SRV - COBERTURA E TELHAMENTO",
-    "AUTOMAÇÃO", "SRV - INST. ELET. E COMUNICACAO", "PINTURA SOBRE PISO", "SRV - FORRO DE GESSO E DRY WALL",
-    "SRV - FORROS ESPECIAIS", "SRV - INSTALACAO DE GRANITO E MARMORE", "SRV - INSTALACAO DE PISO LAMINADO E VINILICO",
-    "SRV - INSTALACAO HIDRAULICA", "SRV - ESTRUTURA METALICA", "PRE-MOLDADOS DE CONCRETO - ELEMENTOS ESTRUTURAIS",
-    "MONTAGEM E DESMONTAGEM DE EQUIPAMENTOS", "SRV - FUNDACAO", "SRV - PAVIMENTACAO ASFALTICA",
-    "SRV - TERRAPLANAGEM", "SRV - INSTALACAO PARA GAS E ACESSORIOS", "PERGOLADOS E DECKS DE MADEIRA",
-    "INSTALAÇÃO DE REVESTIMENTOS ESPECIAIS DE PAREDE", "VIDROS E ACESSORIOS", "PRESTADORES DE SERVIÇOS TÉCNICOS",
-    "SRV - SERRALHERIA", "CHURRASQUEIRAS - SERVIÇO", "SRV - PAISAGISMO", "SRV - ESQUADRIA DE FERRO",
-    "SRV - INSTALACAO DE PISOS EXTERNOS", "SERVIÇO DE SEGURANÇA PATRIMONIAL", "CONTROLE TECNOLÓGICO DE CONCRETO",
-    "SRV - TOPOGRAFIA", "SRV - CLIMATIZACAO"
-]
-
-LISTA_FALLBACK_OBRAS = [
-    "CORPORATIVO / GERAL", "ECOVILLAS DO LAGO", "ATMOS", "HARMONIA", "LEGEND"
-]
-
-LISTA_TIPOS = ["Novo", "Aditivo"]
-OPCOES_STATUS = ["OK", "N/A", "aguardando"]
 
 # --- SESSÃO E CONFIGURAÇÕES ---
 if "sb_url" not in st.session_state:
@@ -524,10 +395,7 @@ if "logged_in" not in st.session_state:
 sb_client = None
 if st.session_state.sb_url and st.session_state.sb_key:
     try:
-        sb_client = SupabaseClient(
-            url=st.session_state.sb_url,
-            key=st.session_state.sb_key
-        )
+        sb_client = SupabaseClient(url=st.session_state.sb_url, key=st.session_state.sb_key)
         sb_client.connect()
     except Exception:
         sb_client = None
@@ -543,6 +411,25 @@ def carregar_usuarios():
         except Exception:
             pass
     return []
+
+# --- CARREGAMENTO DINÂMICO DE COMPRADORES DOS USUÁRIOS CADASTRADOS ---
+@st.cache_data(ttl=60)
+def carregar_compradores_dinamico():
+    """Busca a lista de compradores diretamente dos usuários cadastrados no banco."""
+    users = carregar_usuarios()
+    compradores = []
+    for u in users:
+        if u.get("ativo", True):
+            nome = str(u.get("nome", "")).strip()
+            if nome:
+                compradores.append(nome)
+    compradores = sorted(list(set(compradores)))
+    return compradores if compradores else ["Bruno C.", "Leonardo F.", "Matheus F."]
+
+# Listas de apoio
+LISTA_TIPOS = ["Novo", "Aditivo"]
+OPCOES_STATUS = ["OK", "N/A", "aguardando"]
+LISTA_FALLBACK_OBRAS = ["CORPORATIVO / GERAL", "ECOVILLAS DO LAGO", "ATMOS", "HARMONIA", "LEGEND"]
 
 # --- AUTO-RECUPERAÇÃO DE SESSÃO ---
 auth_param = st.query_params.get("auth", None)
@@ -566,12 +453,8 @@ def duplicar_processo_fornecedor(id_origem: str):
         return False, "Conexão com o banco de dados indisponível."
         
     id_origem_str = str(id_origem).strip()
-    
     match_sufixo = re.match(r"^(.*?)\s*-\s*(\d+)$", id_origem_str)
-    if match_sufixo:
-        base_id = match_sufixo.group(1).strip()
-    else:
-        base_id = id_origem_str
+    base_id = match_sufixo.group(1).strip() if match_sufixo else id_origem_str
 
     todos_processos = sb_client.get_list_items(list_name="PGI_GestaoCotacoes")
     item_original = next((x for x in todos_processos if str(x.get("ID_PGI", "")).strip() == id_origem_str), None)
@@ -610,9 +493,11 @@ def duplicar_processo_fornecedor(id_origem: str):
             "validacao_ger": str(item_original.get("validacao_ger", "aguardando")),
             "validacao_sup": str(item_original.get("validacao_sup", "aguardando")),
             
-            # Restante em branco / pendente
+            # Restante em branco / pendente para o novo fornecedor
             "cnpj_fornecedor": "",
             "razao_social": "",
+            "valor_fechado": 0.00,
+            "savings": 0.00,
             "req_mega": "",
             "contr_mega": "",
             "param_fiscal": "N/A",
@@ -643,8 +528,7 @@ def duplicar_processo_fornecedor(id_origem: str):
             
             payload_clone = criar_payload_clone(id_novo_clone)
             sb_client.insert_list_item(payload_clone, list_name="PGI_GestaoCotacoes")
-            
-            return True, f"✔️ Processo {base_id} desmembrado com sucesso em {id_novo_original} e {id_novo_clone}!"
+            return True, f"✔️ Processo {base_id} desmembrado em {id_novo_original} e {id_novo_clone}!"
         else:
             maior_n = max(sufixos_existentes) if sufixos_existentes else 1
             proximo_n = maior_n + 1
@@ -652,8 +536,7 @@ def duplicar_processo_fornecedor(id_origem: str):
             
             payload_clone = criar_payload_clone(id_novo_clone)
             sb_client.insert_list_item(payload_clone, list_name="PGI_GestaoCotacoes")
-            
-            return True, f"✔️ Novo processo desdobrado com sucesso: {id_novo_clone}!"
+            return True, f"✔️ Novo processo gerado com sucesso: {id_novo_clone}!"
     except Exception as e:
         return False, f"Erro ao duplicar processo: {str(e)}"
 
@@ -747,7 +630,7 @@ def carregar_grupos_insumo():
                 return grupos
         except Exception:
             pass
-    return LISTA_FALLBACK_GRUPO_INSUMO
+    return ["SRV - ALVENARIA", "SRV - PINTURA", "SRV - ESQUADRIA DE ALUMINIO", "PROTENSAO - ACESSORIOS"]
 
 @st.cache_data(ttl=300)
 def carregar_obras_detalhadas():
@@ -784,12 +667,14 @@ def carregar_dados():
                     "sp_id": item.get("ID"),
                     "DT_EMISSAO": str(item.get("DT_EMISSAO", "")),
                     "tipo": str(item.get("tipo", "Novo")),
-                    "Comprador": format_buyer_name(item.get("Comprador", "")),
+                    "Comprador": str(item.get("Comprador", "")).strip(),
                     "grupoinsumo": str(item.get("grupoinsumo", "")),
                     "grupointerno": str(item.get("grupointerno", "")),
                     "cotacao": str(item.get("cotacao", item.get("Title", ""))),
                     "cnpj_fornecedor": str(item.get("cnpj_fornecedor", "")).strip(),
                     "razao_social": str(item.get("razao_social", "")).strip().upper(),
+                    "valor_fechado": parse_float_safe(item.get("valor_fechado", 0.00)),
+                    "savings": parse_float_safe(item.get("savings", 0.00)),
                     "due_dilligence": str(item.get("due_dilligence", "aguardando")),
                     "equalizacao": str(item.get("equalizacao", "aguardando")),
                     "orcamento": str(item.get("orcamento", "N/A")),
@@ -806,24 +691,13 @@ def carregar_dados():
                     "aud_pasta": str(item.get("aud_pasta", "aguardando")),
                     "concluido": parse_bool_safe(item.get("concluido", False))
                 })
+            # ITEM 4: Ordenação natural estrita para JAMAIS reordenar linhas ao atualizar
+            dados_mapeados.sort(key=lambda x: natural_sort_key(x["ID_PGI"]))
             return dados_mapeados
         except Exception:
             return []
     else:
         return []
-
-def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
-    if not sb_client:
-        return False
-    try:
-        endpoint = f"{sb_client.rest_url}/PGI_GestaoCotacoes?ID_PGI=eq.{str(id_pgi).strip()}&select=ID_PGI"
-        res = requests.get(endpoint, headers=sb_client._get_headers(), timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            return len(data) > 0
-    except Exception:
-        pass
-    return False
 
 def excluir_registro(pgi_id):
     if sb_client:
@@ -856,6 +730,117 @@ def get_html_concluido_badge(concluido_bool):
         return '<span style="background-color:#EAF7EE; color:#28A745; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #28A745; display:inline-block;">CONCLUÍDO</span>'
     else:
         return '<span style="background-color:rgba(255,111,0,0.1); color:#FF6F00; font-weight:800; padding:2px 8px; border-radius:12px; font-size:10px; border:1px solid #FF6F00; display:inline-block;">EM ANDAMENTO</span>'
+
+# --- GERADOR DE TEMPLATE EXCEL COM LISTAS SUSPENSAS ---
+def gerar_template_excel_com_validacao(obras, tipos, compradores, grupos, status_opts):
+    import openpyxl
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = openpyxl.Workbook()
+    ws_main = wb.active
+    ws_main.title = "Cotações PGI"
+
+    ws_apoio = wb.create_sheet(title="_ApoioListas")
+    ws_apoio.sheet_state = "hidden"
+
+    ws_apoio.cell(row=1, column=1, value="OBRAS")
+    for i, v in enumerate(obras, start=2):
+        ws_apoio.cell(row=i, column=1, value=v)
+    range_obras = f"='_ApoioListas'!$A$2:$A${len(obras)+1}"
+
+    ws_apoio.cell(row=1, column=2, value="TIPOS")
+    for i, v in enumerate(tipos, start=2):
+        ws_apoio.cell(row=i, column=2, value=v)
+    range_tipos = f"='_ApoioListas'!$B$2:$B${len(tipos)+1}"
+
+    ws_apoio.cell(row=1, column=3, value="COMPRADORES")
+    for i, v in enumerate(compradores, start=2):
+        ws_apoio.cell(row=i, column=3, value=v)
+    range_compradores = f"='_ApoioListas'!$C$2:$C${len(compradores)+1}"
+
+    ws_apoio.cell(row=1, column=4, value="GRUPOS")
+    for i, v in enumerate(grupos, start=2):
+        ws_apoio.cell(row=i, column=4, value=v)
+    range_grupos = f"='_ApoioListas'!$D$2:$D${len(grupos)+1}"
+
+    ws_apoio.cell(row=1, column=5, value="STATUS")
+    for i, v in enumerate(status_opts, start=2):
+        ws_apoio.cell(row=i, column=5, value=v)
+    range_status = f"='_ApoioListas'!$E$2:$E${len(status_opts)+1}"
+
+    ws_apoio.cell(row=1, column=6, value="CONCLUIDO")
+    ws_apoio.cell(row=2, column=6, value="NÃO")
+    ws_apoio.cell(row=3, column=6, value="SIM")
+    range_concluido = "='_ApoioListas'!$F$2:$F$3"
+
+    # Cabeçalhos: CNPJ presente, Razão Social omitida para leitura automática
+    headers = [
+        "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao", "cnpj_fornecedor",
+        "valor_fechado", "savings",
+        "orcamento", "due_dilligence", "equalizacao", "validacao_eng", "validacao_ger", "validacao_sup",
+        "req_mega", "contr_mega", "param_fiscal", "minuta", "ass_digital", "credenciamento",
+        "comunicar", "aud_pasta", "concluido"
+    ]
+
+    header_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="00205B", end_color="00205B", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+
+    for col_idx, h_text in enumerate(headers, start=1):
+        cell = ws_main.cell(row=1, column=col_idx, value=h_text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    sample_row = [
+        "49001", obras[0] if obras else "ATMOS", "Novo", compradores[0] if compradores else "Bruno C.",
+        grupos[0] if grupos else "SRV - ALVENARIA", "EXECUÇÃO DE ALVENARIA TORRE A", "00.000.000/0001-91",
+        150000.00, 12500.00,
+        "OK", "OK", "aguardando", "aguardando", "aguardando", "aguardando",
+        "", "", "N/A", "N/A", "aguardando", "N/A", "N/A", "aguardando", "NÃO"
+    ]
+    for col_idx, val in enumerate(sample_row, start=1):
+        ws_main.cell(row=2, column=col_idx, value=val)
+
+    dv_obra = DataValidation(type="list", formula1=range_obras, allow_blank=True)
+    ws_main.add_data_validation(dv_obra)
+    dv_obra.add("B2:B3000")
+
+    dv_tipo = DataValidation(type="list", formula1=range_tipos, allow_blank=True)
+    ws_main.add_data_validation(dv_tipo)
+    dv_tipo.add("C2:C3000")
+
+    dv_comp = DataValidation(type="list", formula1=range_compradores, allow_blank=True)
+    ws_main.add_data_validation(dv_comp)
+    dv_comp.add("D2:D3000")
+
+    dv_grupo = DataValidation(type="list", formula1=range_grupos, allow_blank=True)
+    ws_main.add_data_validation(dv_grupo)
+    dv_grupo.add("E2:E3000")
+
+    status_columns = ["J", "K", "L", "M", "N", "O", "R", "S", "T", "U", "V", "W"]
+    dv_status = DataValidation(type="list", formula1=range_status, allow_blank=True)
+    ws_main.add_data_validation(dv_status)
+    for col_letter in status_columns:
+        dv_status.add(f"{col_letter}2:{col_letter}3000")
+
+    dv_conc = DataValidation(type="list", formula1=range_concluido, allow_blank=True)
+    ws_main.add_data_validation(dv_conc)
+    dv_conc.add("X2:X3000")
+
+    col_widths = {
+        "A": 12, "B": 22, "C": 12, "D": 20, "E": 26, "F": 35, "G": 22,
+        "H": 16, "I": 16, "J": 13, "K": 13, "L": 13, "M": 13, "N": 13,
+        "O": 13, "P": 14, "Q": 14, "R": 13, "S": 13, "T": 13, "U": 13,
+        "V": 13, "W": 13, "X": 13
+    }
+    for col_letter, width in col_widths.items():
+        ws_main.column_dimensions[col_letter].width = width
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
 
 
 # ==============================================================================
@@ -900,9 +885,19 @@ if not st.session_state.logged_in:
 else:
     lista_grupo_insumo_dynamic = carregar_grupos_insumo()
     lista_obras_dynamic = carregar_obras()
+    lista_compradores_dynamic = carregar_compradores_dinamico()
     
     db_data_current = carregar_dados()
     df_current = pd.DataFrame(db_data_current)
+    
+    is_admin = st.session_state.get("user_perfil") == "administrador"
+    current_user_name = str(st.session_state.get("user", "")).strip().lower()
+
+    # Função de verificação de permissão de visualização financeira
+    def pode_ver_valores(comprador_nome):
+        if is_admin:
+            return True
+        return str(comprador_nome).strip().lower() == current_user_name
 
     with st.sidebar:
         logo_dark = get_logo_svg(theme="dark", width=145, height=30)
@@ -912,7 +907,7 @@ else:
             </div>
         """)
         
-        perfil_nome = "Administrador" if st.session_state.get("user_perfil") == "administrador" else "Comprador"
+        perfil_nome = "Administrador" if is_admin else "Comprador"
         render_html(f"""
             <div style="background-color: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px 12px; margin-bottom: 16px;">
                 <div style="font-size: 10px; color: #FFD180; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 800; margin-bottom: 4px;">Sessão Ativa</div>
@@ -925,7 +920,6 @@ else:
             </div>
         """)
         
-        is_admin = st.session_state.get("user_perfil") == "administrador"
         nav_options = ["Dashboard Geral", "Adicionar ID"]
         if is_admin:
             nav_options.append("Gestão de Obras (Admin)")
@@ -990,41 +984,43 @@ else:
             total_finalizados = len(df_calc[df_calc["concluido"] == True])
             total_em_andamento = len(df_calc[df_calc["concluido"] == False])
             taxa_conclusao = (total_finalizados / total_processos * 100) if total_processos > 0 else 0.0
+            
+            # Cálculo de valores fechados e savings respeitando a privacidade
+            if is_admin:
+                soma_valor_fechado = df_calc["valor_fechado"].sum()
+                soma_savings = df_calc["savings"].sum()
+                label_vf = "Valor Total Fechado (Geral)"
+                label_sv = "Total de Savings (Geral)"
+            else:
+                df_meus = df_calc[df_calc["Comprador"].str.strip().str.lower() == current_user_name]
+                soma_valor_fechado = df_meus["valor_fechado"].sum() if not df_meus.empty else 0.0
+                soma_savings = df_meus["savings"].sum() if not df_meus.empty else 0.0
+                label_vf = "Meu Valor Fechado"
+                label_sv = "Meus Savings Gerados"
         else:
             total_processos = total_finalizados = total_em_andamento = 0
-            taxa_conclusao = 0.0
+            taxa_conclusao = soma_valor_fechado = soma_savings = 0.0
+            label_vf = "Valor Fechado"
+            label_sv = "Savings"
         
+        # Linha 1: 4 Cards Operacionais
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        
         with col_m1:
-            render_html(f"""
-                <div class="metric-card-custom">
-                    <div class="metric-label">Total de Processos</div>
-                    <div class="metric-value">{total_processos}</div>
-                </div>
-            """)
+            render_html(f"""<div class="metric-card-custom"><div class="metric-label">Total de Processos</div><div class="metric-value">{total_processos}</div></div>""")
         with col_m2:
-            render_html(f"""
-                <div class="metric-card-custom orange-border">
-                    <div class="metric-label">Processos em Andamento</div>
-                    <div class="metric-value" style="color: #FF6F00;">{total_em_andamento}</div>
-                </div>
-            """)
+            render_html(f"""<div class="metric-card-custom orange-border"><div class="metric-label">Processos em Andamento</div><div class="metric-value" style="color: #FF6F00;">{total_em_andamento}</div></div>""")
         with col_m3:
-            render_html(f"""
-                <div class="metric-card-custom">
-                    <div class="metric-label">Processos Finalizados</div>
-                    <div class="metric-value" style="color: #28A745;">{total_finalizados}</div>
-                </div>
-            """)
+            render_html(f"""<div class="metric-card-custom"><div class="metric-label">Processos Finalizados</div><div class="metric-value" style="color: #28A745;">{total_finalizados}</div></div>""")
         with col_m4:
-            render_html(f"""
-                <div class="metric-card-custom">
-                    <div class="metric-label">Taxa de Conclusão</div>
-                    <div class="metric-value" style="color: #00205B;">{taxa_conclusao:.1f}%</div>
-                </div>
-            """)
+            render_html(f"""<div class="metric-card-custom"><div class="metric-label">Taxa de Conclusão</div><div class="metric-value" style="color: #00205B;">{taxa_conclusao:.1f}%</div></div>""")
         
+        # Linha 2: 2 Cards Financeiros (Privacidade integrada)
+        col_fin1, col_fin2 = st.columns(2)
+        with col_fin1:
+            render_html(f"""<div class="metric-card-custom"><div class="metric-label">{label_vf}</div><div class="metric-value" style="color: #00205B;">{formatar_moeda(soma_valor_fechado)}</div></div>""")
+        with col_fin2:
+            render_html(f"""<div class="metric-card-custom orange-border"><div class="metric-label">{label_sv}</div><div class="metric-value" style="color: #FF6F00;">{formatar_moeda(soma_savings)}</div></div>""")
+
         # --- FILTROS DE PESQUISA ---
         with st.expander("🔍 Filtros de Processos", expanded=False):
             def get_filter_options(df, column_name):
@@ -1095,6 +1091,7 @@ else:
             colunas_oficiais = [
                 "ID_PGI", "obra", "tipo", "Comprador", "grupoinsumo", "cotacao",
                 "cnpj_fornecedor", "razao_social",
+                "valor_fechado", "savings",
                 "orcamento", "due_dilligence", "equalizacao", "validacao_eng",
                 "validacao_ger", "validacao_sup", "req_mega", "contr_mega",
                 "param_fiscal", "minuta", "ass_digital", "credenciamento",
@@ -1103,28 +1100,38 @@ else:
             
             for col in colunas_oficiais:
                 if col not in df_filtered.columns:
-                    df_filtered[col] = False if col == "concluido" else ""
+                    df_filtered[col] = 0.00 if col in ["valor_fechado", "savings"] else (False if col == "concluido" else "")
                     
             df_edit_view = df_filtered[colunas_oficiais].copy().reset_index(drop=True)
 
             # ==================================================================
-            # MODO 1: TABELA VISUAL (PADRÃO) COM AÇÕES: ✏️, 📑, 🗑️
+            # MODO 1: TABELA VISUAL COM CONTROLE DESLIZANTE DE LARGURA (ITEM 3)
             # ==================================================================
             if modo_visualizacao == "👁️ Tabela Visual (Badges)":
+                # ITEM 3: Controle interativo de largura para visualização
+                col_slider, col_info_table = st.columns([2, 3])
+                with col_slider:
+                    zoom_largura = st.slider(
+                        "📏 Ajustar Largura da Tabela (Pixels)",
+                        min_value=2200, max_value=3800, value=2850, step=100,
+                        help="Arraste para ajustar o comprimento da tabela na sua tela"
+                    )
+
                 headers = [
                     "Ações", "ID PGI", "Obra", "Tipo", "Comprador", "Grupo de Insumo", "Escopo / Cotação",
                     "CNPJ Fornecedor", "Razão Social (Receita Federal)",
+                    "Valor Fechado", "Savings",
                     "Solic. Orç.", "Due Dill.", "Equaliz.", "Valid. Eng.", "Valid. Gerente", "Valid. Suprimentos",
                     "Abertura RM", "Contrato MEGA", "Param. Fiscal", "Minuta", "Ass. Digital",
                     "Credenc. GT", "Informar Eng.", "Audit. Pasta", "Status"
                 ]
                 
-                table_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 6px;'>"
-                table_html += "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: 2750px;'>"
+                table_html = f"<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-top: 6px;'>"
+                table_html += f"<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 11px; min-width: {zoom_largura}px;'>"
                 table_html += "<thead style='background-color: #00205B; color: white; border-bottom: 3px solid #FF6F00;'>"
                 table_html += "<tr>"
                 for h in headers:
-                    table_html += f"<th style='padding: 10px 12px; text-align: left; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);'>{h}</th>"
+                    table_html += f"<th class='resizable-th' style='padding: 10px 12px; text-align: left; font-weight: 700; border: 1px solid rgba(255,255,255,0.1);'>{h}</th>"
                 table_html += "</tr>"
                 table_html += "</thead>"
                 table_html += "<tbody>"
@@ -1150,6 +1157,14 @@ else:
                         razao_fmt = f"<b>{row['razao_social']}</b>"
                     else:
                         razao_fmt = '<span style="color:#A0AEC0;">Pendente</span>'
+                        
+                    # Regra de Privacidade 2.1: Comprador enxerga valores somente dos seus processos
+                    if pode_ver_valores(row['Comprador']):
+                        vf_cell = f"<span style='font-weight:700; color:#00205B;'>{formatar_moeda(row['valor_fechado'])}</span>"
+                        sv_cell = f"<span style='font-weight:700; color:#FF6F00;'>{formatar_moeda(row['savings'])}</span>"
+                    else:
+                        vf_cell = '<span style="color:#A0AEC0;" title="Acesso restrito ao comprador responsável">🔒 Restrito</span>'
+                        sv_cell = '<span style="color:#A0AEC0;" title="Acesso restrito ao comprador responsável">🔒 Restrito</span>'
                     
                     table_html += f"<td style='padding: 8px 12px; font-weight: 800; color: #00205B; border: 1px solid #F4F6F9;'>{row['ID_PGI']}</td>"
                     table_html += f"<td style='padding: 8px 12px; font-weight: 700; color: #FF6F00; border: 1px solid #F4F6F9;'>{row['obra']}</td>"
@@ -1160,6 +1175,10 @@ else:
                     
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{cnpj_fmt}</td>"
                     table_html += f"<td style='padding: 8px 12px; color: #00205B; border: 1px solid #F4F6F9;'>{razao_fmt}</td>"
+                    
+                    # Colunas Financeiras com privacidade
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{vf_cell}</td>"
+                    table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{sv_cell}</td>"
                     
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['orcamento'])}</td>"
                     table_html += f"<td style='padding: 8px 12px; border: 1px solid #F4F6F9;'>{get_html_status_badge(row['due_dilligence'])}</td>"
@@ -1192,7 +1211,7 @@ else:
                 with col_info_plan:
                     render_html("""
                         <div style="background-color:#F4F6F9; padding: 8px 12px; border-radius: 4px; border-left: 4px solid #FF6F00; font-size: 12px;">
-                            💡 <strong>Modo Planilha:</strong> Digite o <strong>CNPJ</strong> e clique em <strong>"🔍 Validar CNPJs"</strong> para buscar a Razão Social. Ao terminar, clique em <strong>"💾 Salvar Alterações"</strong>.
+                            💡 <strong>Modo Planilha:</strong> Digite o <strong>CNPJ</strong> e clique em <strong>"🔍 Validar CNPJs"</strong>. A classificação e ordem das linhas serão rigorosamente preservadas.
                         </div>
                     """)
                 with col_btn_autofit:
@@ -1202,7 +1221,7 @@ else:
                         st.rerun()
 
                 opcoes_obras = sorted(list(set(lista_obras_dynamic + [str(x) for x in df_edit_view["obra"].unique() if str(x).strip()])))
-                opcoes_compradores = sorted(list(set(LISTA_COMPRADORES + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
+                opcoes_compradores = sorted(list(set(lista_compradores_dynamic + [str(x) for x in df_edit_view["Comprador"].unique() if str(x).strip()])))
                 opcoes_grupos = sorted(list(set(lista_grupo_insumo_dynamic + [str(x) for x in df_edit_view["grupoinsumo"].unique() if str(x).strip()])))
                 
                 is_autofit = st.session_state.autofit_cols
@@ -1220,6 +1239,9 @@ else:
                     
                     "cnpj_fornecedor": st.column_config.TextColumn("CNPJ Fornecedor", help="Digite apenas os números. Clique em 'Validar CNPJs' para buscar a Razão Social.", width=w_m),
                     "razao_social": st.column_config.TextColumn("Razão Social (Receita Federal)", help="Preenchida automaticamente após clicar em 'Validar CNPJs'", disabled=True, width=w_l),
+                    
+                    "valor_fechado": st.column_config.NumberColumn("Valor Fechado (R$)", format="R$ %.2f", step=100.0, width=w_m),
+                    "savings": st.column_config.NumberColumn("Savings (R$)", format="R$ %.2f", step=100.0, width=w_m),
                     
                     "orcamento": st.column_config.SelectboxColumn("Solic. Orç.", options=OPCOES_STATUS, width=w_s),
                     "due_dilligence": st.column_config.SelectboxColumn("Due Dill.", options=OPCOES_STATUS, width=w_s),
@@ -1302,7 +1324,7 @@ else:
                                             list_name="PGI_GestaoCotacoes",
                                             id_column="ID_PGI"
                                         )
-                                        erros_cnpj.append(f"ID {pgi_id}: CNPJ {formatar_cnpj(cnpj_clean)} não encontrado (marcado como #ERRO).")
+                                        erros_cnpj.append(f"ID {pgi_id}: CNPJ não localizado na Receita (marcado como #ERRO).")
                                         alteracoes_cnpj += 1
 
                     if "editor_planilha_dashboard" in st.session_state:
@@ -1311,7 +1333,7 @@ else:
                     st.cache_data.clear()
                     
                     if alteracoes_cnpj > 0:
-                        st.success(f"✔️ {alteracoes_cnpj} CNPJ(s) processado(s) e validados na Receita!")
+                        st.success(f"✔️ {alteracoes_cnpj} CNPJ(s) processado(s) e validados!")
                     if erros_cnpj:
                         for err in erros_cnpj:
                             st.warning(f"⚠️ {err}")
@@ -1327,9 +1349,9 @@ else:
                         r_social = str(row_check.get("razao_social", "")).strip()
                         
                         if c_clean and not r_social:
-                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ informado sem Razão Social validada)")
+                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ informado sem validação)")
                         elif not c_clean and r_social:
-                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ apagado; execute a validação para limpar a Razão Social)")
+                            pendencias_validacao.append(f"ID {row_check['ID_PGI']} (CNPJ apagado; valide para limpar a Razão Social)")
 
                     if pendencias_validacao:
                         st.error("⚠️ **Bloqueio de Segurança:** Existem alterações de CNPJ que precisam ser validadas antes de salvar:")
@@ -1344,14 +1366,24 @@ else:
                             row_orig = df_edit_view.loc[idx]
                             diff_dict = {}
                             
+                            # Verifica permissão do usuário sobre campos de valor
+                            pode_alterar_valores = pode_ver_valores(row_edit["Comprador"])
+                            
                             for col_name in colunas_oficiais:
                                 if col_name != "ID_PGI":
+                                    # Se não tiver permissão sobre os valores financeiros, não altera
+                                    if col_name in ["valor_fechado", "savings"] and not pode_alterar_valores:
+                                        continue
+                                        
                                     val_orig = row_orig[col_name]
                                     val_edit = row_edit[col_name]
                                     
                                     if col_name == "concluido":
                                         if bool(val_orig) != bool(val_edit):
                                             diff_dict["concluido"] = bool(val_edit)
+                                    elif col_name in ["valor_fechado", "savings"]:
+                                        if parse_float_safe(val_orig) != parse_float_safe(val_edit):
+                                            diff_dict[col_name] = parse_float_safe(val_edit)
                                     else:
                                         if str(val_orig).strip() != str(val_edit).strip():
                                             diff_dict[col_name] = str(val_edit).strip()
@@ -1378,18 +1410,17 @@ else:
             st.info("Nenhuma cotação localizada para os filtros selecionados.")
 
     # ==========================================================================
-    # PAGE 2: ADICIONAR ID (INDIVIDUAL OU IMPORTAÇÃO EM MASSA COM LISTAS SUSPENSAS)
+    # PAGE 2: ADICIONAR ID
     # ==========================================================================
     elif st.session_state.menu_option == "Adicionar ID":
         st.markdown("<h3 class='styled-table-title'>🆕 Cadastrar Novo Processo ou Importar Planilha</h3>", unsafe_allow_html=True)
         
         tab_novo_id, tab_import_excel = st.tabs(["➕ Cadastrar ID Individual", "📥 Importação em Massa (Excel)"])
         
-        # --- SUB-ABA 1: CADASTRO INDIVIDUAL ---
         with tab_novo_id:
             render_html("""
                 <div class="info-card">
-                    <strong>🛡️ Cadastro de Processo:</strong> Cadastre o ID base do processo. Se a cotação for fechada com múltiplos fornecedores, utilize o botão <b>📑 Duplicar</b> na tabela para desmembrar os sufixos (ex: <code>43239 - 1</code>, <code>43239 - 2</code>).
+                    <strong>🛡️ Cadastro de Processo:</strong> Cadastre o ID base do processo. Os compradores listados correspondem aos usuários ativos cadastrados no sistema.
                 </div>
             """)
             
@@ -1400,7 +1431,7 @@ else:
                     new_tipo = st.selectbox("Tipo de Processo", LISTA_TIPOS)
                 with col_f2:
                     new_obra = st.selectbox("Obra Relacionada", lista_obras_dynamic)
-                    new_comprador = st.selectbox("Comprador Responsável", LISTA_COMPRADORES)
+                    new_comprador = st.selectbox("Comprador Responsável", lista_compradores_dynamic)
                     
                 st.write("")
                 submit_new = st.form_submit_button("💾 Salvar Novo ID")
@@ -1428,6 +1459,8 @@ else:
                                     "cotacao": f"PROCESSO PGI {id_str}",
                                     "cnpj_fornecedor": "",
                                     "razao_social": "",
+                                    "valor_fechado": 0.00,
+                                    "savings": 0.00,
                                     "due_dilligence": "aguardando",
                                     "equalizacao": "aguardando",
                                     "orcamento": "aguardando",
@@ -1452,25 +1485,23 @@ else:
                             except Exception as e:
                                 st.error(f"❌ Erro ao cadastrar processo: {str(e)}")
 
-        # --- SUB-ABA 2: IMPORTAÇÃO EM MASSA COM LISTAS SUSPENSAS E LEITURA DE CNPJ ---
         with tab_import_excel:
             render_html("""
                 <div class="info-card">
-                    <strong>📁 Carga em Massa via Excel:</strong> Baixe o modelo oficial com listas suspensas integradas. A coluna <code>razao_social</code> não é necessária: preencha apenas o <code>cnpj_fornecedor</code> e a Receita Federal será consultada na importação (erros serão marcados como <code>#ERRO</code>).
+                    <strong>📁 Carga em Massa via Excel:</strong> Baixe o modelo oficial com validações e listas suspensas. Ao preencher o CNPJ, a Receita Federal é consultada automaticamente (erros marcados como <code>#ERRO</code>).
                 </div>
             """)
             
             col_mod1, col_mod2 = st.columns([2.5, 1.5])
             with col_mod1:
                 st.markdown("<strong>1. Baixe o Modelo Oficial com Listas Suspensas</strong>", unsafe_allow_html=True)
-                st.caption("Planilha pré-formatada com validações nativas para Obra, Tipo, Comprador, Grupo de Insumo e Status.")
+                st.caption("Planilha pré-formatada com validações integradas para Obra, Tipo, Compradores (usuários) e Status.")
             with col_mod2:
-                # Geração protegida da planilha com Data Validation
                 try:
                     bytes_template = gerar_template_excel_com_validacao(
                         obras=lista_obras_dynamic,
                         tipos=LISTA_TIPOS,
-                        compradores=LISTA_COMPRADORES,
+                        compradores=lista_compradores_dynamic,
                         grupos=lista_grupo_insumo_dynamic,
                         status_opts=OPCOES_STATUS
                     )
@@ -1525,7 +1556,6 @@ else:
                                     cnpj_raw = str(row_u.get("cnpj_fornecedor", "")).strip()
                                     razao_social_final = ""
                                     
-                                    # LEITURA AUTOMÁTICA DE CNPJ -> RAZÃO SOCIAL COM REGRA #ERRO
                                     if cnpj_raw and cnpj_raw.lower() not in ["none", "nan", ""]:
                                         cnpj_clean = re.sub(r"\D", "", cnpj_raw)
                                         if len(cnpj_clean) == 14:
@@ -1546,12 +1576,14 @@ else:
                                         "ID_PGI": pgi_id_val,
                                         "obra": str(row_u.get("obra", "N/A")).strip().upper(),
                                         "tipo": str(row_u.get("tipo", "Novo")).strip(),
-                                        "Comprador": format_buyer_name(row_u.get("Comprador", "")),
+                                        "Comprador": str(row_u.get("Comprador", "")).strip(),
                                         "grupoinsumo": str(row_u.get("grupoinsumo", "N/A")).strip(),
                                         "grupointerno": str(row_u.get("grupointerno", "")).strip(),
                                         "cotacao": str(row_u.get("cotacao", f"PROCESSO PGI {pgi_id_val}")).strip().upper(),
                                         "cnpj_fornecedor": cnpj_raw,
                                         "razao_social": razao_social_final,
+                                        "valor_fechado": parse_float_safe(row_u.get("valor_fechado", 0.00)),
+                                        "savings": parse_float_safe(row_u.get("savings", 0.00)),
                                         "due_dilligence": str(row_u.get("due_dilligence", "aguardando")).strip(),
                                         "equalizacao": str(row_u.get("equalizacao", "aguardando")).strip(),
                                         "orcamento": str(row_u.get("orcamento", "N/A")).strip(),
@@ -1574,7 +1606,7 @@ else:
                                     sb_client.insert_batch(lista_inserir, list_name="PGI_GestaoCotacoes")
                                     
                                 st.cache_data.clear()
-                                st.success(f"🎉 **Carga Concluída!** Inseridos **{len(lista_inserir)}** processos no sistema.")
+                                st.success(f"🎉 **Carga Concluída!** Foram inseridos **{len(lista_inserir)}** processos no sistema.")
                                 st.balloons()
                                 
                 except Exception as err_file:
@@ -1584,13 +1616,11 @@ else:
     # PAGE 3: GESTÃO DE OBRAS (EXCLUSIVO ADMINISTRADOR)
     # ==========================================================================
     elif st.session_state.menu_option == "Gestão de Obras (Admin)":
-        is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
             st.error("🔒 **Acesso Negado:** Módulo restrito a Administradores.")
             st.stop()
 
         st.markdown("<h3 class='styled-table-title'>🏗️ Gestão de Obras e Associação de Processos</h3>", unsafe_allow_html=True)
-        
         tab_vincular, tab_obras_cad = st.tabs(["🔗 Associar Obra ao Processo", "➕ Cadastrar / Visualizar Obras"])
         
         with tab_vincular:
@@ -1667,7 +1697,6 @@ else:
     # PAGE 4: GESTÃO DE USUÁRIOS (EXCLUSIVO ADMINISTRADOR)
     # ==========================================================================
     elif st.session_state.menu_option == "Gestão de Usuários (Admin)":
-        is_admin = st.session_state.get("user_perfil") == "administrador"
         if not is_admin:
             st.error("🔒 **Acesso Negado:** Módulo restrito a Administradores.")
             st.stop()
@@ -1678,7 +1707,7 @@ else:
         df_users = pd.DataFrame(lista_usuarios_atual)
 
         if not df_users.empty:
-            st.markdown("<strong style='color:#00205B;'>Usuários Cadastrados no Sistema</strong>", unsafe_allow_html=True)
+            st.markdown("<strong style='color:#00205B;'>Usuários Cadastrados no Sistema (Compradores Disponíveis)</strong>", unsafe_allow_html=True)
             
             headers_users = ["Username / Login", "Nome Completo", "Perfil de Acesso", "Status da Conta"]
             u_html = "<div style='overflow-x: auto; width: 100%; border: 1px solid #E2E8F0; border-radius: 6px; margin-bottom: 20px;'>"
@@ -1726,7 +1755,7 @@ else:
                     new_u_nome = st.text_input("Nome Completo", placeholder="Ex: Matheus Fava")
                 with col_u2:
                     new_u_senha = st.text_input("Senha de Acesso", type="password", placeholder="Digite a senha...")
-                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"], help="Administradores podem gerenciar obras, usuários e fluxos.")
+                    new_u_perfil = st.selectbox("Perfil de Acesso", ["comprador", "administrador"])
                     new_u_ativo = st.checkbox("Manter Conta Ativa", value=True)
 
                 submit_new_u = st.form_submit_button("💾 Salvar Usuário")
@@ -1813,3 +1842,4 @@ else:
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Erro ao atualizar usuário: {str(e)}")
+```

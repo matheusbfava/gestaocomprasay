@@ -239,56 +239,52 @@ st.markdown("""
     <style>
     /* 1. Oculta a barra superior inteira (Atalho do GitHub, Deploy e Menu de 3 pontinhos) */
     /* Torna o cabeçalho transparente (não bloqueia a tela) */
+    /* ======================================================== */
+    /* CABEÇALHO TRANSPARENTE COM BOTÃO DO MENU VISÍVEL         */
+    /* ======================================================== */
+    
+    /* 1. O cabeçalho fica transparente e não bloqueia a tela */
     header[data-testid="stHeader"] {
         background-color: transparent !important;
+        pointer-events: none !important;
     }
 
-    /* Oculta APENAS o menu de 3 pontinhos, atalho do GitHub e botão Deploy */
+    /* 2. Oculta apenas os botões da direita (GitHub, Deploy, 3 pontinhos) */
     #MainMenu, 
     [data-testid="stToolbar"], 
     .stDeployButton {
-        visibility: hidden !important;
         display: none !important;
     }
 
-    /* Garante que o botão de REABRIR a barra lateral continue VISÍVEL e com a cor da A.Yoshii */
-    [data-testid="stSidebarCollapsedControl"] {
-        visibility: visible !important;
+    /* 3. Força o botão de reabrir a barra lateral a aparecer flutuando no canto esquerdo */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"],
+    button[data-testid="stSidebarCollapseButton"] {
         display: flex !important;
-        color: #00205B !important;
-        background-color: #F4F6F9 !important;
-        border-radius: 4px !important;
-        border: 1px solid #FF6F00 !important;
-        margin: 5px !important;
-    }
-    
-    [data-testid="stSidebarCollapsedControl"] svg {
-        fill: #00205B !important;
-    }
-
-    /* Oculta o rodapé */
-    footer {
-        visibility: hidden !important;
-        display: none !important;
-    }
-    
-    #MainMenu {
-        visibility: hidden !important;
-        display: none !important;
-    }
-    
-    [data-testid="stToolbar"] {
-        visibility: hidden !important;
-        display: none !important;
-    }
-    
-    .stDeployButton {
-        display: none !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
+        z-index: 999999 !important;
+        background-color: #00205B !important;
+        border: 2px solid #FF6F00 !important;
+        border-radius: 6px !important;
+        padding: 6px !important;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3) !important;
+        cursor: pointer !important;
     }
 
-    /* 2. Oculta o rodapé do Streamlit ("Made with Streamlit") */
+    /* Cor da seta do botão (Branca com destaque) */
+    [data-testid="collapsedControl"] svg,
+    [data-testid="stSidebarCollapsedControl"] svg,
+    button[data-testid="stSidebarCollapseButton"] svg {
+        fill: #FFFFFF !important;
+        stroke: #FFFFFF !important;
+    }
+
+    /* Oculta o rodapé do Streamlit */
     footer {
-        visibility: hidden !important;
         display: none !important;
     }
     

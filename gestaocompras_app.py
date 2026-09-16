@@ -1157,7 +1157,7 @@ else:
                 with col_slider:
                     zoom_largura = st.slider(
                         "📏 Ajustar Largura da Tabela (Pixels)",
-                        min_value=2200, max_value=3800, value=2850, step=100,
+                        min_value=2200, max_value=3800, value=3200, step=100,
                         help="Arraste para ajustar o comprimento da tabela na sua tela"
                     )
 

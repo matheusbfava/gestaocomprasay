@@ -237,6 +237,37 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
 # Estilização CSS institucional
 st.markdown("""
     <style>
+    /* 1. Oculta a barra superior inteira (Atalho do GitHub, Deploy e Menu de 3 pontinhos) */
+    header[data-testid="stHeader"] {
+        visibility: hidden !important;
+        display: none !important;
+        height: 0px !important;
+    }
+    
+    #MainMenu {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    [data-testid="stToolbar"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    .stDeployButton {
+        display: none !important;
+    }
+
+    /* 2. Oculta o rodapé do Streamlit ("Made with Streamlit") */
+    footer {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    /* 3. Remove margem em branco excessiva que sobra no topo */
+    .block-container {
+        padding-top: 1.5rem !important;
+    }
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;

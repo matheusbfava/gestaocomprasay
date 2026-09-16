@@ -238,10 +238,38 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
 st.markdown("""
     <style>
     /* 1. Oculta a barra superior inteira (Atalho do GitHub, Deploy e Menu de 3 pontinhos) */
+    /* Torna o cabeçalho transparente (não bloqueia a tela) */
     header[data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+
+    /* Oculta APENAS o menu de 3 pontinhos, atalho do GitHub e botão Deploy */
+    #MainMenu, 
+    [data-testid="stToolbar"], 
+    .stDeployButton {
         visibility: hidden !important;
         display: none !important;
-        height: 0px !important;
+    }
+
+    /* Garante que o botão de REABRIR a barra lateral continue VISÍVEL e com a cor da A.Yoshii */
+    [data-testid="stSidebarCollapsedControl"] {
+        visibility: visible !important;
+        display: flex !important;
+        color: #00205B !important;
+        background-color: #F4F6F9 !important;
+        border-radius: 4px !important;
+        border: 1px solid #FF6F00 !important;
+        margin: 5px !important;
+    }
+    
+    [data-testid="stSidebarCollapsedControl"] svg {
+        fill: #00205B !important;
+    }
+
+    /* Oculta o rodapé */
+    footer {
+        visibility: hidden !important;
+        display: none !important;
     }
     
     #MainMenu {

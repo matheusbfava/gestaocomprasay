@@ -237,61 +237,42 @@ def consultar_cnpj_receita(cnpj_input: str) -> str:
 # Estilização CSS institucional
 st.markdown("""
     <style>
-    /* 1. Oculta a barra superior inteira (Atalho do GitHub, Deploy e Menu de 3 pontinhos) */
-    /* Torna o cabeçalho transparente (não bloqueia a tela) */
     /* ======================================================== */
-    /* CABEÇALHO TRANSPARENTE COM BOTÃO DO MENU VISÍVEL         */
+    /* OCULTA GITHUB, DEPLOY E 3 PONTINHOS SEM QUEBRAR O MENU   */
     /* ======================================================== */
-    
-    /* 1. O cabeçalho fica transparente e não bloqueia a tela */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        pointer-events: none !important;
+    #MainMenu {
+        display: none !important;
     }
-
-    /* 2. Oculta apenas os botões da direita (GitHub, Deploy, 3 pontinhos) */
-    #MainMenu, 
-    [data-testid="stToolbar"], 
+    
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    
     .stDeployButton {
         display: none !important;
     }
 
-    /* 3. Força o botão de reabrir a barra lateral a aparecer flutuando no canto esquerdo */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapsedControl"],
-    button[data-testid="stSidebarCollapseButton"] {
-        display: flex !important;
-        visibility: visible !important;
-        pointer-events: auto !important;
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
-        z-index: 999999 !important;
-        background-color: #00205B !important;
-        border: 2px solid #FF6F00 !important;
-        border-radius: 6px !important;
-        padding: 6px !important;
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3) !important;
-        cursor: pointer !important;
-    }
-
-    /* Cor da seta do botão (Branca com destaque) */
-    [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapsedControl"] svg,
-    button[data-testid="stSidebarCollapseButton"] svg {
-        fill: #FFFFFF !important;
-        stroke: #FFFFFF !important;
-    }
-
-    /* Oculta o rodapé do Streamlit */
     footer {
         display: none !important;
     }
+
+    /* Impede que o usuário feche a barra lateral por engano */
+    [data-testid="stSidebarCollapseButton"] {
+        display: none !important;
+    }
     
-    /* 3. Remove margem em branco excessiva que sobra no topo */
+    /* Remove margem em branco excessiva que sobra no topo */
     .block-container {
         padding-top: 1.5rem !important;
     }
+
+    /* Fonte compacta na Planilha Interativa (Excel) */
+    div[data-testid="stDataEditor"],
+    div[data-testid="stDataEditor"] * {
+        font-size: 11px !important;
+    }
+
+    /* Barra Lateral (Sidebar) */
     [data-testid="stSidebar"] {
         background-color: #00205B !important;
         border-right: 3px solid #FF6F00 !important;
@@ -416,7 +397,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
 def render_html(html_str):
     clean_html = "".join([line.strip() for line in html_str.split("\n")])
     st.markdown(clean_html, unsafe_allow_html=True)

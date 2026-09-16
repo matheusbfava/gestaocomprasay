@@ -1842,4 +1842,3 @@ else:
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"❌ Erro ao atualizar usuário: {str(e)}")
-```

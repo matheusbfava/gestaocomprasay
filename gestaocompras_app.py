@@ -698,7 +698,20 @@ def carregar_dados():
             return []
     else:
         return []
-
+# --- VERIFICAÇÃO DE UNICIDADE EM TEMPO REAL ---
+def verificar_id_duplicado_tempo_real(id_pgi: str) -> bool:
+    """Consulta direta na base sem cache para garantir unicidade em tempo real."""
+    if not sb_client:
+        return False
+    try:
+        endpoint = f"{sb_client.rest_url}/PGI_GestaoCotacoes?ID_PGI=eq.{str(id_pgi).strip()}&select=ID_PGI"
+        res = requests.get(endpoint, headers=sb_client._get_headers(), timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return len(data) > 0
+    except Exception:
+        pass
+    return False
 def excluir_registro(pgi_id):
     if sb_client:
         try:
